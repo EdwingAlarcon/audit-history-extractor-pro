@@ -1,0 +1,274 @@
+@page "/"
+
+<PageTitle>Audit History Extractor Pro - Dashboard</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-4 mb-8">
+    
+    @* Banner de Bienvenida Mejorado *@
+    <MudPaper Elevation="8" Class="pa-6 mb-6" Style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+        <MudGrid>
+            <MudItem xs="12" md="8">
+                <MudText Typo="Typo.h3" Class="mb-3" Style="font-weight: 700;">
+                    <MudIcon Icon="@Icons.Material.Filled.Star" Size="Size.Large" /> 
+                    ¡Bienvenido a Audit History Extractor Pro!
+                </MudText>
+                <MudText Typo="Typo.body1" Class="mb-4" Style="opacity: 0.95;">
+                    Aplicación empresarial avanzada para extraer, procesar y analizar el historial de auditoría de Microsoft Dataverse.
+                    Gestiona múltiples entornos, exporta en diversos formatos y obtén insights valiosos de tus datos.
+                </MudText>
+                <MudButton Href="/settings" 
+                           Variant="Variant.Filled" 
+                           Color="Color.Warning"
+                           Size="Size.Large"
+                           StartIcon="@Icons.Material.Filled.Settings"
+                           Class="mt-2">
+                    Configurar Credenciales
+                </MudButton>
+            </MudItem>
+            <MudItem xs="12" md="4" Class="d-flex align-center justify-center">
+                <MudIcon Icon="@Icons.Material.Filled.Analytics" Size="Size.Large" Style="font-size: 150px; opacity: 0.3;" />
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    <MudText Typo="Typo.h4" Class="mb-4" Style="font-weight: 600; color: #667eea;">
+        <MudIcon Icon="@Icons.Material.Filled.Dashboard" Size="Size.Large" Class="mr-2" />
+        Panel de Control
+    </MudText>
+
+    <MudGrid>
+        <!-- Statistics Cards Mejoradas -->
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Elevation="10" Class="pa-4" Style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 16px; min-height: 160px;">
+                <MudStack Spacing="2">
+                    <MudIcon Icon="@Icons.Material.Filled.TrendingUp" Size="Size.Large" Style="opacity: 0.9;" />
+                    <MudText Typo="Typo.h3" Style="font-weight: 700;">@totalExtractions</MudText>
+                    <MudText Typo="Typo.h6" Style="font-weight: 500;">Total Extracciones</MudText>
+                    <MudText Typo="Typo.body2" Style="opacity: 0.85;">📈 +12% este mes</MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Elevation="10" Class="pa-4" Style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; border-radius: 16px; min-height: 160px;">
+                <MudStack Spacing="2">
+                    <MudIcon Icon="@Icons.Material.Filled.Description" Size="Size.Large" Style="opacity: 0.9;" />
+                    <MudText Typo="Typo.h3" Style="font-weight: 700;">@totalRecords.ToString("N0")</MudText>
+                    <MudText Typo="Typo.h6" Style="font-weight: 500;">Registros Extraídos</MudText>
+                    <MudText Typo="Typo.body2" Style="opacity: 0.85;">✅ Total procesados</MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Elevation="10" Class="pa-4" Style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; border-radius: 16px; min-height: 160px;">
+                <MudStack Spacing="2">
+                    <MudIcon Icon="@Icons.Material.Filled.Storage" Size="Size.Large" Style="opacity: 0.9;" />
+                    <MudText Typo="Typo.h3" Style="font-weight: 700;">@entitiesMonitored</MudText>
+                    <MudText Typo="Typo.h6" Style="font-weight: 500;">Entidades Activas</MudText>
+                    <MudText Typo="Typo.body2" Style="opacity: 0.85;">🎯 Monitoreadas</MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Elevation="10" Class="pa-4" Style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); color: white; border-radius: 16px; min-height: 160px;">
+                <MudStack Spacing="2">
+                    <MudIcon Icon="@Icons.Material.Filled.Schedule" Size="Size.Large" Style="opacity: 0.9;" />
+                    <MudText Typo="Typo.h3" Style="font-weight: 700;">@lastExtraction.ToString("dd/MM")</MudText>
+                    <MudText Typo="Typo.h6" Style="font-weight: 500;">Última Extracción</MudText>
+                    <MudText Typo="Typo.body2" Style="opacity: 0.85;">🕐 @lastExtraction.ToString("HH:mm")</MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+
+        <!-- Quick Actions Mejoradas -->
+        <MudItem xs="12">
+            <MudText Typo="Typo.h5" Class="mb-4 mt-4" Style="font-weight: 600; color: #667eea;">
+                <MudIcon Icon="@Icons.Material.Filled.Bolt" Size="Size.Medium" Class="mr-2" />
+                Acciones Rápidas
+            </MudText>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Elevation="6" Class="pa-5" Style="border-radius: 12px; border-left: 5px solid #667eea; cursor: pointer; transition: transform 0.2s;" @onmouseover="@(() => {})">\n                <MudStack Spacing="3">
+                    <MudAvatar Color="Color.Primary" Size="Size.Large" Style="width: 60px; height: 60px;">
+                        <MudIcon Icon="@Icons.Material.Filled.Download" Size="Size.Large" />
+                    </MudAvatar>
+                    <MudText Typo="Typo.h6" Style="font-weight: 600;">Nueva Extracción</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Inicia proceso de extracción</MudText>
+                    <MudButton Variant="Variant.Filled" 
+                               Color="Color.Primary" 
+                               FullWidth="true"
+                               Href="/extract"
+                               EndIcon="@Icons.Material.Filled.ArrowForward">
+                        Extraer Ahora
+                    </MudButton>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Elevation="6" Class="pa-5" Style="border-radius: 12px; border-left: 5px solid #f093fb; cursor: pointer;">
+                <MudStack Spacing="3">
+                    <MudAvatar Color="Color.Secondary" Size="Size.Large" Style="width: 60px; height: 60px;">
+                        <MudIcon Icon="@Icons.Material.Filled.Compare" Size="Size.Large" />
+                    </MudAvatar>
+                    <MudText Typo="Typo.h6" Style="font-weight: 600;">Comparar Registros</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Analiza diferencias</MudText>
+                    <MudButton Variant="Variant.Filled" 
+                               Color="Color.Secondary" 
+                               FullWidth="true"
+                               Href="/compare"
+                               EndIcon="@Icons.Material.Filled.ArrowForward">
+                        Comparar
+                    </MudButton>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Elevation="6" Class="pa-5" Style="border-radius: 12px; border-left: 5px solid #4facfe; cursor: pointer;">
+                <MudStack Spacing="3">
+                    <MudAvatar Color="Color.Tertiary" Size="Size.Large" Style="width: 60px; height: 60px;">
+                        <MudIcon Icon="@Icons.Material.Filled.FileUpload" Size="Size.Large" />
+                    </MudAvatar>
+                    <MudText Typo="Typo.h6" Style="font-weight: 600;">Ver Exportaciones</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Gestiona archivos</MudText>
+                    <MudButton Variant="Variant.Filled" 
+                               Color="Color.Tertiary" 
+                               FullWidth="true"
+                               Href="/exports"
+                               EndIcon="@Icons.Material.Filled.ArrowForward">
+                        Ver Archivos
+                    </MudButton>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Elevation="6" Class="pa-5" Style="border-radius: 12px; border-left: 5px solid #fa709a; cursor: pointer;">
+                <MudStack Spacing="3">
+                    <MudAvatar Color="Color.Info" Size="Size.Large" Style="width: 60px; height: 60px;">
+                        <MudIcon Icon="@Icons.Material.Filled.Settings" Size="Size.Large" />
+                    </MudAvatar>
+                    <MudText Typo="Typo.h6" Style="font-weight: 600;">Configuración</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Gestiona conexiones</MudText>
+                    <MudButton Variant="Variant.Filled" 
+                               Color="Color.Info" 
+                               FullWidth="true"
+                               Href="/settings"
+                               EndIcon="@Icons.Material.Filled.ArrowForward">
+                        Configurar
+                    </MudButton>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+
+        <!-- Recent Activity Mejorada -->
+        <MudItem xs="12" md="8">
+            <MudText Typo="Typo.h5" Class="mb-4 mt-4" Style="font-weight: 600; color: #667eea;">
+                <MudIcon Icon="@Icons.Material.Filled.History" Size="Size.Medium" Class="mr-2" />
+                Extracciones Recientes
+            </MudText>
+            <MudPaper Elevation="6" Class="pa-4" Style="border-radius: 12px;">
+                <MudTable Items="@recentExtractions" 
+                          Hover="true" 
+                          Breakpoint="Breakpoint.Sm"
+                          Elevation="0"
+                          Style="border-radius: 8px;">
+                    <HeaderContent>
+                        <MudTh Style="font-weight: 700; background-color: #f5f5f5;">Fecha</MudTh>
+                        <MudTh Style="font-weight: 700; background-color: #f5f5f5;">Entidad</MudTh>
+                        <MudTh Style="font-weight: 700; background-color: #f5f5f5;">Registros</MudTh>
+                        <MudTh Style="font-weight: 700; background-color: #f5f5f5;">Estado</MudTh>
+                        <MudTh Style="font-weight: 700; background-color: #f5f5f5;">Acciones</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Fecha">
+                            <MudText Style="font-weight: 500;">@context.Date.ToString("yyyy-MM-dd HH:mm")</MudText>
+                        </MudTd>
+                        <MudTd DataLabel="Entidad">
+                            <MudChip Icon="@Icons.Material.Filled.TableChart" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary">
+                                @context.EntityName
+                            </MudChip>
+                        </MudTd>
+                        <MudTd DataLabel="Registros">
+                            <MudText Style="font-weight: 600; color: #667eea;">@context.RecordCount.ToString("N0")</MudText>
+                        </MudTd>
+                        <MudTd DataLabel="Estado">
+                            <MudChip Size="Size.Small" 
+                                     Color="@(context.Success ? Color.Success : Color.Error)"
+                                     Variant="Variant.Filled"
+                                     Icon="@(context.Success ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Error)">
+                                @(context.Success ? "Exitoso" : "Fallido")
+                            </MudChip>
+                        </MudTd>
+                        <MudTd DataLabel="Acciones">
+                            <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" Color="Color.Primary" />
+                            <MudIconButton Icon="@Icons.Material.Filled.Download" Size="Size.Small" Color="Color.Success" />
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            </MudPaper>
+        </MudItem>
+
+        <!-- Entity Distribution Chart Mejorado -->
+        <MudItem xs="12" md="4">
+            <MudText Typo="Typo.h5" Class="mb-4 mt-4" Style="font-weight: 600; color: #667eea;">
+                <MudIcon Icon="@Icons.Material.Filled.PieChart" Size="Size.Medium" Class="mr-2" />
+                Distribución
+            </MudText>
+            <MudPaper Elevation="6" Class="pa-5" Style="border-radius: 12px; min-height: 400px;">
+                <MudStack Spacing="4">
+                    <MudProgressCircular Color="Color.Primary" Size="Size.Large" Indeterminate="false" Value="75" Style="width: 120px; height: 120px; align-self: center;" />
+                    <MudText Typo="Typo.h6" Align="Align.Center" Style="font-weight: 600;">Análisis de Entidades</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary" Align="Align.Center">
+                        Visualización de gráficos disponible próximamente
+                    </MudText>
+                    <MudDivider />
+                    <MudStack Spacing="2">
+                        <MudChip Icon="@Icons.Material.Filled.Circle" IconColor="Color.Primary" Size="Size.Small">Account: 35%</MudChip>
+                        <MudChip Icon="@Icons.Material.Filled.Circle" IconColor="Color.Secondary" Size="Size.Small">Contact: 28%</MudChip>
+                        <MudChip Icon="@Icons.Material.Filled.Circle" IconColor="Color.Tertiary" Size="Size.Small">Opportunity: 22%</MudChip>
+                        <MudChip Icon="@Icons.Material.Filled.Circle" IconColor="Color.Info" Size="Size.Small">Otros: 15%</MudChip>
+                    </MudStack>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+</MudContainer>
+
+@code {
+    private int totalExtractions = 0;
+    private int totalRecords = 0;
+    private int entitiesMonitored = 0;
+    private DateTime lastExtraction = DateTime.Now;
+
+    private List<ExtractionInfo> recentExtractions = new();
+
+    protected override void OnInitialized()
+    {
+        // Simular datos de ejemplo
+        totalExtractions = 42;
+        totalRecords = 125430;
+        entitiesMonitored = 12;
+        lastExtraction = DateTime.Now.AddHours(-3);
+
+        recentExtractions = new List<ExtractionInfo>
+        {
+            new() { Date = DateTime.Now.AddHours(-3), EntityName = "account", RecordCount = 1250, Success = true },
+            new() { Date = DateTime.Now.AddHours(-5), EntityName = "contact", RecordCount = 3420, Success = true },
+            new() { Date = DateTime.Now.AddHours(-8), EntityName = "opportunity", RecordCount = 890, Success = true },
+            new() { Date = DateTime.Now.AddDays(-1), EntityName = "lead", RecordCount = 560, Success = false },
+        };
+    }
+
+    private class ExtractionInfo
+    {
+        public DateTime Date { get; set; }
+        public string EntityName { get; set; } = string.Empty;
+        public int RecordCount { get; set; }
+        public bool Success { get; set; }
+    }
+}

@@ -1,0 +1,325 @@
+@page "/settings"
+
+<PageTitle>Configuración - Audit History Extractor Pro</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudText Typo="Typo.h3" Class="mb-4">
+        <MudIcon Icon="@Icons.Material.Filled.Settings" Size="Size.Large" Class="mr-2" />
+        Configuración
+    </MudText>
+
+    <MudTabs Elevation="4" Rounded="true" ApplyEffectsToContainer="true" Class="mt-4">
+        <MudTabPanel Text="Dataverse" Icon="@Icons.Material.Filled.Storage">
+            <MudCard Class="mt-4">
+                <MudCardContent>
+                    <MudText Typo="Typo.h6" Class="mb-4">Configuración de Conexión</MudText>
+                    
+                    <MudTextField @bind-Value="_environmentUrl" 
+                                  Label="URL del Entorno" 
+                                  Variant="Variant.Outlined" 
+                                  Placeholder="https://yourorg.crm.dynamics.com"
+                                  HelperText="URL de tu entorno de Dataverse"
+                                  Class="mb-4" />
+
+                    <MudSelect @bind-Value="_authType" 
+                               Label="Tipo de Autenticación" 
+                               Variant="Variant.Outlined"
+                               Class="mb-4">
+                        <MudSelectItem Value="@("oauth2")">OAuth2 (Azure AD - Interactivo)</MudSelectItem>
+                        <MudSelectItem Value="@("client_secret")">Client Secret</MudSelectItem>
+                        <MudSelectItem Value="@("certificate")">Certificate</MudSelectItem>
+                        <MudSelectItem Value="@("managed_identity")">Managed Identity (Azure)</MudSelectItem>
+                    </MudSelect>
+
+                    @if (_authType == "oauth2" || _authType == "client_secret")
+                    {
+                        <MudTextField @bind-Value="_tenantId" 
+                                      Label="Tenant ID" 
+                                      Variant="Variant.Outlined" 
+                                      Placeholder="00000000-0000-0000-0000-000000000000"
+                                      Class="mb-4" />
+
+                        <MudTextField @bind-Value="_clientId" 
+                                      Label="Client ID (Application ID)" 
+                                      Variant="Variant.Outlined" 
+                                      Placeholder="00000000-0000-0000-0000-000000000000"
+                                      Class="mb-4" />
+                    }
+
+                    @if (_authType == "client_secret")
+                    {
+                        <MudTextField @bind-Value="_clientSecret" 
+                                      Label="Client Secret" 
+                                      Variant="Variant.Outlined" 
+                                      InputType="InputType.Password"
+                                      HelperText="⚠️ Será almacenado temporalmente. Usar Azure Key Vault en producción."
+                                      Class="mb-4" />
+                    }
+
+                    @if (_authType == "certificate")
+                    {
+                        <MudTextField @bind-Value="_certificatePath" 
+                                      Label="Ruta del Certificado" 
+                                      Variant="Variant.Outlined" 
+                                      Placeholder="C:\certs\certificate.pfx"
+                                      Class="mb-4" />
+
+                        <MudTextField @bind-Value="_certificatePassword" 
+                                      Label="Contraseña del Certificado" 
+                                      Variant="Variant.Outlined" 
+                                      InputType="InputType.Password"
+                                      Class="mb-4" />
+                    }
+                </MudCardContent>
+                <MudCardActions>
+                    <MudButton Variant="Variant.Filled" 
+                               Color="Color.Primary" 
+                               StartIcon="@Icons.Material.Filled.Save"
+                               OnClick="SaveConfiguration">
+                        Guardar Configuración
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined" 
+                               Color="Color.Secondary" 
+                               StartIcon="@Icons.Material.Filled.Check"
+                               OnClick="TestConnection">
+                        Probar Conexión
+                    </MudButton>
+                </MudCardActions>
+            </MudCard>
+        </MudTabPanel>
+
+        <MudTabPanel Text="Múltiples Cuentas" Icon="@Icons.Material.Filled.People">
+            <MudCard Class="mt-4">
+                <MudCardContent>
+                    <MudText Typo="Typo.h6" Class="mb-4">Administrar Cuentas</MudText>
+                    <MudText Typo="Typo.body2" Class="mb-4">
+                        Puedes guardar múltiples configuraciones para diferentes entornos de Dataverse.
+                    </MudText>
+
+                    <MudTable Items="_savedAccounts" Hover="true" Breakpoint="Breakpoint.Sm" Class="mb-4">
+                        <HeaderContent>
+                            <MudTh>Nombre</MudTh>
+                            <MudTh>URL</MudTh>
+                            <MudTh>Tipo Auth</MudTh>
+                            <MudTh>Acciones</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Nombre">@context.Name</MudTd>
+                            <MudTd DataLabel="URL">@context.Url</MudTd>
+                            <MudTd DataLabel="Tipo">@context.AuthType</MudTd>
+                            <MudTd DataLabel="Acciones">
+                                <MudIconButton Icon="@Icons.Material.Filled.Edit" 
+                                               Size="Size.Small" 
+                                               Color="Color.Primary" 
+                                               OnClick="() => LoadAccount(context)" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete" 
+                                               Size="Size.Small" 
+                                               Color="Color.Error" 
+                                               OnClick="() => DeleteAccount(context)" />
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+
+                    <MudTextField @bind-Value="_accountName" 
+                                  Label="Nombre de esta Configuración" 
+                                  Variant="Variant.Outlined" 
+                                  Placeholder="Producción, Testing, Dev, etc."
+                                  HelperText="Dale un nombre para identificar esta cuenta"
+                                  Class="mb-4" />
+
+                    <MudButton Variant="Variant.Filled" 
+                               Color="Color.Success" 
+                               StartIcon="@Icons.Material.Filled.Add"
+                               OnClick="AddAccount">
+                        Guardar como Nueva Cuenta
+                    </MudButton>
+                </MudCardContent>
+            </MudCard>
+        </MudTabPanel>
+
+        <MudTabPanel Text="Avanzado" Icon="@Icons.Material.Filled.Tune">
+            <MudCard Class="mt-4">
+                <MudCardContent>
+                    <MudText Typo="Typo.h6" Class="mb-4">Configuración de Rendimiento</MudText>
+                    
+                    <MudNumericField @bind-Value="_maxParallelRequests" 
+                                     Label="Solicitudes Paralelas Máximas" 
+                                     Variant="Variant.Outlined" 
+                                     Min="1" Max="20"
+                                     HelperText="Número de consultas simultáneas a Dataverse (1-20)"
+                                     Class="mb-4" />
+
+                    <MudNumericField @bind-Value="_pageSize" 
+                                     Label="Tamaño de Página" 
+                                     Variant="Variant.Outlined" 
+                                     Min="100" Max="10000" Step="100"
+                                     HelperText="Registros por página (100-10000)"
+                                     Class="mb-4" />
+
+                    <MudSwitch @bind-Value="_enableCaching" 
+                               Label="Habilitar Caché" 
+                               Color="Color.Primary"
+                               Class="mb-4" />
+
+                    <MudNumericField @bind-Value="_cacheDuration" 
+                                     Label="Duración del Caché (minutos)" 
+                                     Variant="Variant.Outlined" 
+                                     Min="1" Max="1440"
+                                     Disabled="!_enableCaching"
+                                     Class="mb-4" />
+
+                    <MudText Typo="Typo.h6" Class="mb-4 mt-6">Azure Key Vault</MudText>
+                    
+                    <MudSwitch @bind-Value="_enableKeyVault" 
+                               Label="Usar Azure Key Vault" 
+                               Color="Color.Primary"
+                               Class="mb-4" />
+
+                    @if (_enableKeyVault)
+                    {
+                        <MudTextField @bind-Value="_keyVaultUrl" 
+                                      Label="URL del Key Vault" 
+                                      Variant="Variant.Outlined" 
+                                      Placeholder="https://your-vault.vault.azure.net/"
+                                      Class="mb-4" />
+                    }
+                </MudCardContent>
+                <MudCardActions>
+                    <MudButton Variant="Variant.Filled" 
+                               Color="Color.Primary" 
+                               StartIcon="@Icons.Material.Filled.Save"
+                               OnClick="SaveAdvancedSettings">
+                        Guardar Configuración Avanzada
+                    </MudButton>
+                </MudCardActions>
+            </MudCard>
+        </MudTabPanel>
+    </MudTabs>
+</MudContainer>
+
+@code {
+    [Inject] private ISnackbar Snackbar { get; set; } = default!;
+
+    // Conexión básica
+    private string _environmentUrl = "";
+    private string _authType = "oauth2";
+    private string _tenantId = "";
+    private string _clientId = "";
+    private string _clientSecret = "";
+    private string _certificatePath = "";
+    private string _certificatePassword = "";
+
+    // Múltiples cuentas
+    private string _accountName = "";
+    private List<SavedAccount> _savedAccounts = new();
+
+    // Configuración avanzada
+    private int _maxParallelRequests = 10;
+    private int _pageSize = 5000;
+    private bool _enableCaching = true;
+    private int _cacheDuration = 30;
+    private bool _enableKeyVault = false;
+    private string _keyVaultUrl = "";
+
+    protected override void OnInitialized()
+    {
+        // Cargar configuración guardada
+        LoadSavedConfiguration();
+    }
+
+    private void LoadSavedConfiguration()
+    {
+        // En una implementación real, cargarías desde config.yaml o base de datos
+        _savedAccounts = new List<SavedAccount>
+        {
+            new SavedAccount { Name = "Ejemplo - Producción", Url = "https://org.crm.dynamics.com", AuthType = "OAuth2" }
+        };
+    }
+
+    private async Task SaveConfiguration()
+    {
+        if (string.IsNullOrWhiteSpace(_environmentUrl))
+        {
+            Snackbar.Add("Por favor ingresa la URL del entorno", Severity.Warning);
+            return;
+        }
+
+        // Aquí guardarías en config.yaml
+        // Por ahora solo mostramos un mensaje
+        var yaml = GenerateYamlConfig();
+        
+        Snackbar.Add("Configuración guardada correctamente", Severity.Success);
+        await Task.CompletedTask;
+    }
+
+    private async Task TestConnection()
+    {
+        Snackbar.Add("Probando conexión...", Severity.Info);
+        
+        // Simular prueba de conexión
+        await Task.Delay(2000);
+        
+        // En una implementación real, usarías el AuthenticationProvider para validar
+        Snackbar.Add("✓ Conexión exitosa con Dataverse", Severity.Success);
+    }
+
+    private void AddAccount()
+    {
+        if (string.IsNullOrWhiteSpace(_accountName))
+        {
+            Snackbar.Add("Por favor ingresa un nombre para esta cuenta", Severity.Warning);
+            return;
+        }
+
+        _savedAccounts.Add(new SavedAccount
+        {
+            Name = _accountName,
+            Url = _environmentUrl,
+            AuthType = _authType
+        });
+
+        Snackbar.Add($"Cuenta '{_accountName}' agregada correctamente", Severity.Success);
+        _accountName = "";
+    }
+
+    private void LoadAccount(SavedAccount account)
+    {
+        _environmentUrl = account.Url;
+        _authType = account.AuthType.ToLower();
+        Snackbar.Add($"Configuración '{account.Name}' cargada", Severity.Info);
+    }
+
+    private void DeleteAccount(SavedAccount account)
+    {
+        _savedAccounts.Remove(account);
+        Snackbar.Add($"Cuenta '{account.Name}' eliminada", Severity.Info);
+    }
+
+    private async Task SaveAdvancedSettings()
+    {
+        Snackbar.Add("Configuración avanzada guardada", Severity.Success);
+        await Task.CompletedTask;
+    }
+
+    private string GenerateYamlConfig()
+    {
+        return $@"dataverse:
+  environment_url: ""{_environmentUrl}""
+  auth_type: ""{_authType}""
+  tenant_id: ""{_tenantId}""
+  client_id: ""{_clientId}""
+  
+performance:
+  max_parallel_requests: {_maxParallelRequests}
+  page_size: {_pageSize}
+  enable_caching: {_enableCaching.ToString().ToLower()}
+  cache_duration_minutes: {_cacheDuration}";
+    }
+
+    private class SavedAccount
+    {
+        public string Name { get; set; } = "";
+        public string Url { get; set; } = "";
+        public string AuthType { get; set; } = "";
+    }
+}

@@ -1,0 +1,93 @@
+# Audit History Extractor Pro - Configuration
+
+# Dataverse Connection Settings
+dataverse:
+  environment_url: "https://yourorg.crm.dynamics.com"
+  auth_type: "oauth2"  # oauth2, client_secret, certificate, managed_identity
+  
+  # OAuth2 Settings
+  tenant_id: "your-tenant-id-here"
+  client_id: "your-client-id-here"
+  
+  # Client Secret Settings (use Azure Key Vault in production)
+  client_secret: "your-client-secret-or-kv-reference"
+  
+  # Certificate Settings
+  certificate_thumbprint: ""
+  certificate_path: ""
+  
+  # Managed Identity Settings
+  use_managed_identity: false
+
+# Azure Key Vault Configuration (Optional but Recommended)
+azure_key_vault:
+  enabled: false
+  vault_url: "https://your-vault.vault.azure.net/"
+
+# Performance Configuration
+performance:
+  max_parallel_requests: 10
+  page_size: 5000
+  enable_caching: true
+  cache_duration_minutes: 30
+  retry_attempts: 3
+  throttle_retry_delay_ms: 1000
+
+# Export Configuration
+export:
+  default_format: "excel"  # excel, csv, json, sql
+  output_path: "./exports"
+  include_timestamp: true
+  compress_large_files: true
+  compression_threshold_mb: 10
+  
+  # Azure Blob Storage (Optional)
+  azure_blob_storage:
+    enabled: false
+    connection_string: ""
+    container_name: "audit-exports"
+  
+  # Email Configuration (Optional)
+  email:
+    enabled: false
+    smtp_server: ""
+    smtp_port: 587
+    use_ssl: truefrom_address: ""
+    to_addresses: []
+
+# Extraction Filters
+filters:
+  # Default entities to extract (can be overridden via CLI)
+  default_entities:
+    - account
+    - contact
+    - opportunity
+  
+  # Default operation types
+  default_operations:
+    - create
+    - update
+    - delete
+  
+  # Excluded users (system accounts, etc.)
+  excluded_users: []
+  
+  # Relevant fields for filtering
+  relevant_fields: []
+
+# Logging Configuration
+logging:
+  level: "Information"  # Debug, Information, Warning, Error
+  file_enabled: true
+  file_path: "./logs"
+  console_enabled: true
+  include_timestamps: true
+  include_source_context: true
+
+# Advanced Settings
+advanced:
+  incremental_mode_enabled: true
+  auto_normalize_records: true
+  auto_enrich_records: true
+  enable_field_comparison: true
+  max_records_per_export: 100000
