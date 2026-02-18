@@ -29,16 +29,37 @@ builder.Services.AddSingleton<IAuditProcessor, AuditProcessor>();
 
 // Configuración de Dataverse desde appsettings.json
 var dataverseConfig = builder.Configuration.GetSection("Dataverse");
+var configuredEnvironmentUrl = dataverseConfig["EnvironmentUrl"];
+var environmentUrl = string.IsNullOrWhiteSpace(configuredEnvironmentUrl)
+    ? "https://yourorg.crm.dynamics.com"
+    : configuredEnvironmentUrl;
+
+if (string.IsNullOrWhiteSpace(configuredEnvironmentUrl))
+{
+    Log.Warning("Dataverse:EnvironmentUrl no configurado. Se usará URL placeholder para permitir arranque local.");
+}
+
+var useManagedIdentity = bool.TryParse(dataverseConfig["UseManagedIdentity"], out var parsedUseManagedIdentity)
+    ? parsedUseManagedIdentity
+    : false;
+
+var authenticationType = Enum.TryParse<AuthenticationType>(
+    dataverseConfig["Type"],
+    ignoreCase: true,
+    out var parsedAuthType)
+        ? parsedAuthType
+        : AuthenticationType.OAuth2;
+
 var authConfig = new AuthenticationConfiguration
 {
-    EnvironmentUrl = dataverseConfig["EnvironmentUrl"] ?? throw new InvalidOperationException("Dataverse:EnvironmentUrl not configured"),
+    EnvironmentUrl = environmentUrl,
     TenantId = dataverseConfig["TenantId"],
     ClientId = dataverseConfig["ClientId"],
     ClientSecret = dataverseConfig["ClientSecret"],
     CertificatePath = dataverseConfig["CertificatePath"],
     CertificateThumbprint = dataverseConfig["CertificateThumbprint"],
-    UseManagedIdentity = bool.Parse(dataverseConfig["UseManagedIdentity"] ?? "false"),
-    Type = Enum.Parse<AuthenticationType>(dataverseConfig["Type"] ?? "OAuth2", ignoreCase: true)
+    UseManagedIdentity = useManagedIdentity,
+    Type = authenticationType
 };
 
 builder.Services.AddSingleton(authConfig);

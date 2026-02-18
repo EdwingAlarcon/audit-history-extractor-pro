@@ -21,10 +21,14 @@ Estado Fase 0:
 - Pendiente: capturas visuales manuales para anexar evidencia UI.
 
 ## Fase 1 — Configuración UI sin secretos
-- [ ] Mantener `appsettings.example.json` como plantilla versionada.
-- [ ] Mantener `appsettings.json` y `appsettings.Development.json` fuera de control de versiones.
-- [ ] Validar lectura de `Dataverse.EnvironmentUrl` en arranque.
-- [ ] Documentar setup local en README y guía de usuario (ya realizado).
+- [x] Mantener `appsettings.example.json` como plantilla versionada.
+- [x] Mantener `appsettings.json` y `appsettings.Development.json` fuera de control de versiones.
+- [x] Validar lectura de `Dataverse.EnvironmentUrl` en arranque.
+- [x] Documentar setup local en README y guía de usuario (ya realizado).
+
+Estado Fase 1:
+- `Program.cs` robustecido con fallback seguro para `Dataverse.EnvironmentUrl` y parse tolerante de configuración (`Type`, `UseManagedIdentity`).
+- Arranque UI validado en smoke test (`/` => 200) sin depender de variables de entorno manuales.
 
 ## Fase 2 — Limpieza visual mínima (sin cambiar lógica)
 - [ ] Revisar estilos duplicados en `src/AuditHistoryExtractorPro.UI/wwwroot/css/app.css`.
