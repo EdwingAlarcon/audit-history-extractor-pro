@@ -43,7 +43,7 @@ Estado Fase 2:
 ## Fase 3 — Corrección de eventos y estados de UI
 - [x] Revisar `Pages/Extract.razor` (validaciones y estados de carga).
 - [x] Revisar `Pages/Export.razor` (habilitado/deshabilitado según datos).
-- [ ] Revisar `Pages/History.razor` (render y paginación).
+- [x] Revisar `Pages/History.razor` (render y paginación).
 - [ ] Mantener contratos de servicios sin cambios en esta fase.
 
 Estado Fase 3 (avance actual):
@@ -59,6 +59,11 @@ Estado Fase 3 (avance actual):
 	- guardas cuando no hay registros para exportar,
 	- validación de nombre de archivo,
 	- feedback informativo sin invocar exportación inválida.
+- `Pages/History.razor` robustecido con:
+	- paginación real sobre resultados filtrados,
+	- validaciones de filtros (rango de fechas y GUID),
+	- mensajes de estado/error en la vista,
+	- deshabilitado de acciones de filtro durante carga.
 
 ## Fase 4 — Integración progresiva con lógica
 - [ ] Alinear cada vista con un caso de uso concreto de `Application`.
