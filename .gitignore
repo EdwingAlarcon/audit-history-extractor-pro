@@ -189,3 +189,5 @@ azuredeploy.parameters.json
 
 # Local settings
 local.settings.json
+
+src_backup/

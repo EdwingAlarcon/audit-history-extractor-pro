@@ -1,5 +1,7 @@
 using AuditHistoryExtractorPro.CLI.Commands;
 using AuditHistoryExtractorPro.Services.Core;
+using AuditHistoryExtractorPro.Services.Export;
+using AuditHistoryExtractorPro.Services.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
@@ -55,8 +57,8 @@ class Program
             {
                 // Registro de servicios de infraestructura
                 services.AddMemoryCache();
-                services.AddMediatR(cfg => 
-                    cfg.RegisterServicesFromAssembly(typeof(Application.UseCases.ExtractAudit.ExtractAuditCommand).Assembly));
+                services.AddMediatR(cfg =>
+                    cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
                 
                 // Registro de servicios personalizados
                 RegisterServices(services);
@@ -69,11 +71,22 @@ class Program
         services.AddSingleton<Models.ICacheService, MemoryCacheService>();
         services.AddSingleton<Models.IAuditProcessor, AuditProcessor>();
 
-        // Servicios de exportación
-        services.AddTransient<Services.Core.ExcelExportService>();
-        services.AddTransient<Services.Core.CsvExportService>();
-        services.AddTransient<Services.Core.JsonExportService>();
-        services.AddTransient<Models.IExportService, Services.Core.CompositeExportService>();
+        // Servicio de resolución de metadatos Dataverse (caché de dos niveles)
+        services.AddSingleton<Models.IMetadataResolutionService, MetadataResolutionService>();
+
+        // Repositorio de auditoría Dataverse
+        services.AddTransient<Models.IAuditRepository, DataverseAuditRepository>();
+
+        // Servicios de exportación estándar
+        services.AddTransient<ExcelExportService>();
+        services.AddTransient<CsvExportService>();
+        services.AddTransient<JsonExportService>();
+
+        // Exportador optimizado para Power BI (ISO 8601 + Display Names)
+        services.AddTransient<PowerBIOptimizedCsvExportService>();
+
+        // Servicio composite (orquesta todos los exportadores)
+        services.AddTransient<Models.IExportService, CompositeExportService>();
     }
 }
 
