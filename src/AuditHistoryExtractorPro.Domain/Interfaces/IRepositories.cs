@@ -113,6 +113,52 @@ public interface ISecretManager
 }
 
 /// <summary>
+/// Servicio para resolución de metadatos con caché optimizado
+/// Convierte nombres lógicos a labels legibles y resuelve valores de OptionSet
+/// </summary>
+public interface IMetadataResolutionService
+{
+    /// <summary>
+    /// Obtiene el nombre de display de un atributo lógico
+    /// Utiliza caché de dos niveles para optimizar rendimiento
+    /// </summary>
+    Task<string> ResolveAttributeDisplayNameAsync(
+        string entityLogicalName,
+        string attributeLogicalName,
+        CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Resuelve un valor de OptionSet a su etiqueta legible
+    /// Cachea el conjunto completo en la primera solicitud
+    /// </summary>
+    Task<string> ResolveOptionSetLabelAsync(
+        string entityLogicalName,
+        string attributeLogicalName,
+        int optionSetValue,
+        CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Obtiene el tipo de dato de un atributo
+    /// </summary>
+    Task<string> ResolveAttributeTypeAsync(
+        string entityLogicalName,
+        string attributeLogicalName,
+        CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Precarga metadatos para una entidad completa optimizando extracciones posteriores
+    /// </summary>
+    Task PreloadEntityMetadataAsync(
+        string entityLogicalName,
+        CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Limpia el caché de metadatos (usar en casos de actualización de schema)
+    /// </summary>
+    Task ClearMetadataCacheAsync(CancellationToken cancellationToken = default);
+}
+
+/// <summary>
 /// Interfaz para logging estructurado
 /// </summary>
 public interface ILogger<T>

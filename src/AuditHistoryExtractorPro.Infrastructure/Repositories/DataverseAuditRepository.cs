@@ -12,6 +12,11 @@ namespace AuditHistoryExtractorPro.Infrastructure.Repositories;
 
 /// <summary>
 /// Repositorio para operaciones de auditoría con Dataverse
+/// Optimizado a nivel empresarial con:
+/// - Políticas de resiliencia for 429 throttling
+/// - Resolución de metadatos con caché
+/// - Filtrado de campos ruidosos
+/// - Paginación adaptativa para volúmenes altos
 /// </summary>
 public class DataverseAuditRepository : IAuditRepository
 {
@@ -19,7 +24,7 @@ public class DataverseAuditRepository : IAuditRepository
     private readonly AuthenticationConfiguration _config;
     private readonly ILogger<DataverseAuditRepository> _logger;
     private readonly ICacheService _cacheService;
-    private readonly AsyncRetryPolicy _retryPolicy;
+    private readonly IAsyncPolicy<EntityCollection> _retryPolicy;
     private ServiceClient? _serviceClient;
 
     public DataverseAuditRepository(
@@ -33,21 +38,11 @@ public class DataverseAuditRepository : IAuditRepository
         _logger = logger;
         _cacheService = cacheService;
 
-        // Configurar política de reintentos con Polly
-        _retryPolicy = Policy
-            .Handle<FaultException>()
-            .Or<TimeoutException>()
-            .WaitAndRetryAsync(
-                retryCount: 3,
-                sleepDurationProvider: attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt)),
-                onRetry: (exception, timeSpan, retryCount, context) =>
-                {
-                    _logger.LogWarning(
-                        "Retry {RetryCount} after {Delay}s due to {Exception}",
-                        retryCount,
-                        timeSpan.TotalSeconds,
-                        exception.GetType().Name);
-                });
+        // ⭐ MEJORADO: Usar política compuesta con manejo específico de 429
+        _retryPolicy = ResiliencePolicy.CreateCompositePolicy<EntityCollection>(
+            logger,
+            timeout: TimeSpan.FromSeconds(120),
+            maxThrottleRetries: 5);
     }
 
     private async Task<ServiceClient> GetServiceClientAsync()
@@ -136,14 +131,18 @@ public class DataverseAuditRepository : IAuditRepository
         {
             var query = BuildAuditQuery(entityName, criteria, pageNumber, pagingCookie);
 
-            var response = await _retryPolicy.ExecuteAsync(async () =>
+            // ⭐ MEJORADO: Usar política de resiliencia con manejo de 429
+            var response = await _retryPolicy.ExecuteAsync(async (ct) =>
             {
-                return await Task.Run(() => client.RetrieveMultiple(query), cancellationToken);
-            });
+                return await Task.Run(() => client.RetrieveMultiple(query), ct);
+            }, cancellationToken);
+
+            // ⭐ NUEVO: Aplicar limpieza de campos ruidosos si está configurado
+            var cleaningConfig = criteria.DataCleaningConfig;
 
             foreach (var entity in response.Entities)
             {
-                var auditRecord = MapToAuditRecord(entity);
+                var auditRecord = MapToAuditRecord(entity, cleaningConfig);
                 records.Add(auditRecord);
             }
 
@@ -215,8 +214,14 @@ public class DataverseAuditRepository : IAuditRepository
                 criteria.ToDate.Value);
         }
 
-        // Filtrar por tipo de operación
-        if (criteria.Operations?.Any() == true)
+        // ⭐ NUEVO: Filtrar por AuditActionCode (nuevo mapeo forense completo)
+        if (criteria.ActionCodes?.Any() == true)
+        {
+            var actionValues = criteria.ActionCodes.Select(o => (int)o).ToArray();
+            query.Criteria.AddCondition("action", ConditionOperator.In, actionValues);
+        }
+        // Fallback: soportar legacy OperationType
+        else if (criteria.Operations?.Any() == true)
         {
             var operationValues = criteria.Operations.Select(o => (int)o).ToArray();
             query.Criteria.AddCondition("action", ConditionOperator.In, operationValues);
@@ -233,7 +238,9 @@ public class DataverseAuditRepository : IAuditRepository
         return query;
     }
 
-    private AuditRecord MapToAuditRecord(Entity entity)
+    private AuditRecord MapToAuditRecord(
+        Entity entity,
+        DataCleaningConfiguration? cleaningConfig = null)
     {
         var auditRecord = new AuditRecord
         {
@@ -251,26 +258,47 @@ public class DataverseAuditRepository : IAuditRepository
         var changeData = entity.GetAttributeValue<string>("changedata");
         if (!string.IsNullOrEmpty(changeData))
         {
-            auditRecord.Changes = ParseChangeData(changeData);
+            auditRecord.Changes = ParseChangeData(changeData, auditRecord.EntityName, cleaningConfig);
         }
 
         return auditRecord;
     }
 
-    private Dictionary<string, AuditFieldChange> ParseChangeData(string changeData)
+    private AuditRecord MapToAuditRecord(Entity entity)
+    {
+        return MapToAuditRecord(entity, null);
+    }
+
+    private Dictionary<string, AuditFieldChange> ParseChangeData(
+        string changeData,
+        string entityName,
+        DataCleaningConfiguration? cleaningConfig = null)
     {
         var changes = new Dictionary<string, AuditFieldChange>();
+
+        // ⭐ NUEVO: Obtener campos a excluir si está configurado
+        var fieldsToExclude = cleaningConfig?.GetFieldsToExclude() ?? new HashSet<string>();
 
         try
         {
             // El formato de changedata puede ser XML o JSON dependiendo de la versión de Dataverse
-            // Aquí implementamos un parser básico
             var doc = System.Xml.Linq.XDocument.Parse(changeData);
             var attributes = doc.Descendants("attribute");
 
             foreach (var attr in attributes)
             {
                 var fieldName = attr.Attribute("name")?.Value ?? string.Empty;
+                
+                // ⭐ NUEVO: Filtrar campos ruidosos del sistema
+                if (fieldsToExclude.Contains(fieldName))
+                {
+                    _logger.LogDebug(
+                        "Excluding noisy field '{Field}' from entity '{Entity}'",
+                        fieldName,
+                        entityName);
+                    continue;
+                }
+
                 var oldValue = attr.Element("oldValue")?.Value;
                 var newValue = attr.Element("newValue")?.Value;
                 var fieldType = attr.Attribute("type")?.Value ?? "string";
@@ -286,14 +314,20 @@ public class DataverseAuditRepository : IAuditRepository
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to parse change data");
+            _logger.LogError(ex, "Failed to parse change data for entity {Entity}", entityName);
         }
 
         return changes;
     }
 
+    private Dictionary<string, AuditFieldChange> ParseChangeData(string changeData)
+    {
+        return ParseChangeData(changeData, "Unknown", null);
+    }
+
     private string GetOperationName(int operationCode)
     {
+        // ⭐ MEJORADO: Mapeo exhaustivo de ActionCode según SDK de Dataverse
         return operationCode switch
         {
             1 => "Create",
@@ -301,9 +335,41 @@ public class DataverseAuditRepository : IAuditRepository
             3 => "Delete",
             4 => "Associate",
             5 => "Disassociate",
+            6 => "Assign",              // ⭐ NUEVO
+            7 => "Share",               // ⭐ NUEVO
+            8 => "Unshare",             // ⭐ NUEVO
+            9 => "Merge",               // ⭐ NUEVO
+            10 => "Reparent",           // ⭐ NUEVO
+            11 => "Qualify",            // ⭐ NUEVO (Sales Process)
+            12 => "Disqualify",         // ⭐ NUEVO (Sales Process)
+            13 => "Win",                // ⭐ NUEVO (Sales Process)
+            14 => "Lose",               // ⭐ NUEVO (Sales Process)
+            15 => "Deactivate",         // ⭐ NUEVO
+            16 => "Activate",           // ⭐ NUEVO
+            19 => "Fulfill",            // ⭐ NUEVO
+            21 => "CancelOrders",       // ⭐ NUEVO
+            22 => "ConvertQuote",       // ⭐ NUEVO
             27 => "Archive",
             28 => "Restore",
             _ => $"Unknown ({operationCode})"
+        };
+    }
+
+    /// <summary>
+    /// Obtiene la categoría de análisis forense para una acción
+    /// </summary>
+    private string GetActionCategory(int operationCode)
+    {
+        return operationCode switch
+        {
+            1 or 2 or 3 => "CrudBasic",
+            4 or 5 => "Relational",
+            6 or 7 or 8 => "Security",
+            9 or 10 => "Operations",
+            11 or 12 or 13 or 14 => "SalesProcess",
+            15 or 16 => "StatusChange",
+            27 or 28 => "Maintenance",
+            _ => "Unknown"
         };
     }
 
