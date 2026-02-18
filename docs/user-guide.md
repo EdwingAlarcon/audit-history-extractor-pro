@@ -137,6 +137,23 @@ dataverse:
 dotnet run --project src/AuditHistoryExtractorPro.CLI -- validate
 ```
 
+### 6. Configuración local para UI Web
+
+Crear archivo local desde plantilla:
+
+```bash
+# Linux/macOS
+cp src/AuditHistoryExtractorPro.UI/appsettings.example.json src/AuditHistoryExtractorPro.UI/appsettings.Development.json
+
+# Windows PowerShell
+Copy-Item src\AuditHistoryExtractorPro.UI\appsettings.example.json src\AuditHistoryExtractorPro.UI\appsettings.Development.json
+```
+
+Editar `src/AuditHistoryExtractorPro.UI/appsettings.Development.json` y completar al menos:
+- `Dataverse.EnvironmentUrl`
+- `Dataverse.Type`
+- Credenciales requeridas por el método elegido
+
 ## Uso de CLI
 
 ### Comandos Básicos

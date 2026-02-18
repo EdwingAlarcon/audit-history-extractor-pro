@@ -160,6 +160,23 @@ dotnet run --project src/AuditHistoryExtractorPro.UI
 
 **Abre tu navegador en:** `https://localhost:5001`
 
+#### ⚙️ Configuración local rápida (UI)
+
+Antes del primer arranque de la UI, crea tu configuración local desde la plantilla:
+
+```bash
+# Linux/macOS
+cp src/AuditHistoryExtractorPro.UI/appsettings.example.json src/AuditHistoryExtractorPro.UI/appsettings.Development.json
+
+# Windows PowerShell
+Copy-Item src\AuditHistoryExtractorPro.UI\appsettings.example.json src\AuditHistoryExtractorPro.UI\appsettings.Development.json
+```
+
+Luego edita `src/AuditHistoryExtractorPro.UI/appsettings.Development.json` y completa:
+- `Dataverse.EnvironmentUrl`
+- `Dataverse.Type`
+- Credenciales según tipo (`TenantId`, `ClientId`, `ClientSecret` o certificado)
+
 #### 🎯 Primera Vez - Configurar Credenciales
 
 1. **Accede a la interfaz**: https://localhost:5001
