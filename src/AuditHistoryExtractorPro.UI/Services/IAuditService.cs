@@ -6,7 +6,12 @@ public interface IAuditService
 {
     bool IsConnected { get; }
     string OrganizationName { get; }
+    string CrmUrl { get; set; }
+    string LastEntity { get; set; }
+    string LastFilters { get; set; }
 
+    Task InitializeAsync(CancellationToken cancellationToken = default);
+    Task SaveUserConfigAsync(CancellationToken cancellationToken = default);
     Task ConnectAsync(CancellationToken cancellationToken = default);
 
     Task<ExtractExecutionResult> ExtractAuditHistoryAsync(

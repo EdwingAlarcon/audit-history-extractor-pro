@@ -72,8 +72,11 @@
 
     protected override async Task OnInitializedAsync()
     {
+        await AuditService.InitializeAsync();
+
         // TODO: Cargar estadísticas reales desde el servicio
         await LoadDashboardStats();
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task LoadDashboardStats()

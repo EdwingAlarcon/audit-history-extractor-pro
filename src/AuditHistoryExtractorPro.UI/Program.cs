@@ -31,6 +31,7 @@ builder.Services.AddScoped<AuditSessionState>();
 builder.Services.AddSingleton<HistoryViewService>();
 builder.Services.AddSingleton<ExtractViewService>();
 builder.Services.AddSingleton<ExportViewService>();
+builder.Services.AddSingleton<IUserConfigService, UserConfigService>();
 builder.Services.AddScoped<ExtractPageCoordinator>();
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<ExportPageCoordinator>();

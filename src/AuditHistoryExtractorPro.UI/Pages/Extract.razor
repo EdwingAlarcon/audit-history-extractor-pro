@@ -19,23 +19,23 @@
         
         <div class="form-group">
             <label>Nombre de la Entidad:</label>
-            <input type="text" @bind="_vm.EntityName" placeholder="account, contact, etc." class="form-input" />
+            <input type="text" @bind="AuditService.LastEntity" @bind:after="OnEntityChangedAsync" placeholder="account, contact, etc." class="form-input" />
         </div>
 
         <div class="form-group">
             <label>ID del Registro (opcional):</label>
-            <input type="text" @bind="_vm.RecordId" placeholder="00000000-0000-0000-0000-000000000000" class="form-input" />
+            <input type="text" @bind="_vm.RecordId" @bind:after="OnFiltersChangedAsync" placeholder="00000000-0000-0000-0000-000000000000" class="form-input" />
         </div>
 
         <div class="form-row">
             <div class="form-group">
                 <label>Fecha Inicio:</label>
-                <input type="date" @bind="_vm.StartDate" class="form-input" />
+                <input type="date" @bind="_vm.StartDate" @bind:after="OnFiltersChangedAsync" class="form-input" />
             </div>
             
             <div class="form-group">
                 <label>Fecha Fin:</label>
-                <input type="date" @bind="_vm.EndDate" class="form-input" />
+                <input type="date" @bind="_vm.EndDate" @bind:after="OnFiltersChangedAsync" class="form-input" />
             </div>
         </div>
 
@@ -43,15 +43,15 @@
             <label>Operaciones específicas (opcional):</label>
             <div class="checkbox-group">
                 <label class="checkbox-label">
-                    <input type="checkbox" @bind="_vm.IncludeCreate" />
+                    <input type="checkbox" @bind="_vm.IncludeCreate" @bind:after="OnFiltersChangedAsync" />
                     <span>Crear</span>
                 </label>
                 <label class="checkbox-label">
-                    <input type="checkbox" @bind="_vm.IncludeUpdate" />
+                    <input type="checkbox" @bind="_vm.IncludeUpdate" @bind:after="OnFiltersChangedAsync" />
                     <span>Actualizar</span>
                 </label>
                 <label class="checkbox-label">
-                    <input type="checkbox" @bind="_vm.IncludeDelete" />
+                    <input type="checkbox" @bind="_vm.IncludeDelete" @bind:after="OnFiltersChangedAsync" />
                     <span>Eliminar</span>
                 </label>
             </div>
@@ -59,7 +59,7 @@
 
         <div class="form-group">
             <label>Límite de registros:</label>
-            <input type="number" @bind="_vm.MaxRecords" min="1" max="10000" class="form-input" />
+            <input type="number" @bind="_vm.MaxRecords" @bind:after="OnFiltersChangedAsync" min="1" max="10000" class="form-input" />
         </div>
 
         @if (isLoading)
@@ -128,13 +128,28 @@
     private string alertMessage = string.Empty;
     private bool isAlertError;
 
+    protected override async Task OnInitializedAsync()
+    {
+        await AuditService.InitializeAsync();
+
+        if (!string.IsNullOrWhiteSpace(AuditService.LastEntity))
+        {
+            _vm.EntityName = AuditService.LastEntity;
+        }
+
+        ApplySavedFilters();
+        await InvokeAsync(StateHasChanged);
+    }
+
     private async Task HandleExtractOnClick()
     {
-        if (string.IsNullOrWhiteSpace(_vm.EntityName))
+        if (string.IsNullOrWhiteSpace(AuditService.LastEntity))
         {
             ShowAlert("⚠️ Selecciona o ingresa una entidad antes de extraer.", true);
             return;
         }
+
+        _vm.EntityName = AuditService.LastEntity;
 
         isLoading = true;
         _vm.Progress = 0;
@@ -147,6 +162,9 @@
 
         try
         {
+            AuditService.LastFilters = BuildFiltersSnapshot();
+            await AuditService.SaveUserConfigAsync();
+
             var progress = new Progress<ExtractionProgress>(p =>
             {
                 _vm.Progress = (int)Math.Round(p.PercentComplete, MidpointRounding.AwayFromZero);
@@ -212,6 +230,71 @@
     {
         alertMessage = message;
         isAlertError = isError;
+    }
+
+    private Task OnEntityChangedAsync()
+    {
+        _vm.EntityName = AuditService.LastEntity;
+        return AuditService.SaveUserConfigAsync();
+    }
+
+    private Task OnFiltersChangedAsync()
+    {
+        AuditService.LastFilters = BuildFiltersSnapshot();
+        return AuditService.SaveUserConfigAsync();
+    }
+
+    private string BuildFiltersSnapshot()
+    {
+        return System.Text.Json.JsonSerializer.Serialize(new ExtractFiltersState
+        {
+            RecordId = _vm.RecordId,
+            StartDate = _vm.StartDate,
+            EndDate = _vm.EndDate,
+            IncludeCreate = _vm.IncludeCreate,
+            IncludeUpdate = _vm.IncludeUpdate,
+            IncludeDelete = _vm.IncludeDelete,
+            MaxRecords = _vm.MaxRecords
+        });
+    }
+
+    private void ApplySavedFilters()
+    {
+        if (string.IsNullOrWhiteSpace(AuditService.LastFilters))
+        {
+            return;
+        }
+
+        try
+        {
+            var saved = System.Text.Json.JsonSerializer.Deserialize<ExtractFiltersState>(AuditService.LastFilters);
+            if (saved is null)
+            {
+                return;
+            }
+
+            _vm.RecordId = saved.RecordId ?? string.Empty;
+            _vm.StartDate = saved.StartDate;
+            _vm.EndDate = saved.EndDate;
+            _vm.IncludeCreate = saved.IncludeCreate;
+            _vm.IncludeUpdate = saved.IncludeUpdate;
+            _vm.IncludeDelete = saved.IncludeDelete;
+            _vm.MaxRecords = saved.MaxRecords > 0 ? saved.MaxRecords : _vm.MaxRecords;
+        }
+        catch
+        {
+        }
+    }
+
+    private class ExtractFiltersState
+    {
+        public string? RecordId { get; set; }
+        public DateTime? StartDate { get; set; }
+        public DateTime? EndDate { get; set; }
+        public bool IncludeCreate { get; set; }
+        public bool IncludeUpdate { get; set; }
+        public bool IncludeDelete { get; set; }
+        public int MaxRecords { get; set; }
     }
 }
 

@@ -2,6 +2,7 @@
 @using AuditHistoryExtractorPro.Domain.Interfaces
 @using AuditHistoryExtractorPro.Domain.ValueObjects
 @using AuditHistoryExtractorPro.Infrastructure.Authentication
+@using AuditHistoryExtractorPro.UI.Services
 @using DataverseServiceClient = Microsoft.PowerPlatform.Dataverse.Client.ServiceClient
 @using DomainAuthenticationType = AuditHistoryExtractorPro.Domain.ValueObjects.AuthenticationType
 @using Microsoft.Xrm.Sdk.Messages
@@ -9,6 +10,7 @@
 @inject NavigationManager Navigation
 @inject AuthenticationConfiguration AuthConfig
 @inject IServiceProvider ServiceProvider
+@inject IAuditService AuditService
 
 <PageTitle>Configuración - Audit History Extractor Pro</PageTitle>
 
@@ -46,7 +48,7 @@
                 
                 <div class="form-group">
                     <label>URL del Entorno:</label>
-                    <input type="text" @bind="_environmentUrl" 
+                    <input type="text" @bind="AuditService.CrmUrl" @bind:after="PersistUserConfigAsync"
                            placeholder="https://yourorg.crm.dynamics.com" 
                            class="form-input" />
                     <small>URL de tu entorno de Dataverse</small>
@@ -398,7 +400,6 @@
     private string _generatedYaml = string.Empty;
 
     // Conexión básica
-    private string _environmentUrl = "";
     private string _authType = "oauth2";
     private string _tenantId = "";
     private string _clientId = "";
@@ -425,9 +426,11 @@
     private readonly List<string> _availableActions = Enum.GetNames<OperationType>().ToList();
     private string _selectedMetadataEntity = string.Empty;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
+        await AuditService.InitializeAsync();
         LoadSavedConfiguration();
+        await InvokeAsync(StateHasChanged);
     }
 
     private void ActivateDataverseTab()
@@ -456,7 +459,7 @@
 
     private void SaveConfiguration()
     {
-        if (string.IsNullOrWhiteSpace(_environmentUrl))
+        if (string.IsNullOrWhiteSpace(AuditService.CrmUrl))
         {
             ShowMessage("Por favor ingresa la URL del entorno", "error");
             return;
@@ -466,6 +469,7 @@
         {
             // Aquí guardarías en config.yaml
             _generatedYaml = GenerateYamlConfig();
+            _ = PersistUserConfigAsync();
             ShowMessage("✓ Configuración guardada correctamente", "success");
             StateHasChanged();
         }
@@ -477,7 +481,7 @@
 
     private async Task TestConnection()
     {
-        if (string.IsNullOrWhiteSpace(_environmentUrl))
+        if (string.IsNullOrWhiteSpace(AuditService.CrmUrl))
         {
             ShowMessage("Por favor configura la URL del entorno primero", "error");
             return;
@@ -518,7 +522,7 @@
 
     private async Task LoadMetadata()
     {
-        if (string.IsNullOrWhiteSpace(_environmentUrl))
+        if (string.IsNullOrWhiteSpace(AuditService.CrmUrl))
         {
             ShowMessage("Por favor configura la URL del entorno primero", "error");
             return;
@@ -695,7 +699,8 @@
 
     private void SyncAuthConfigurationFromForm()
     {
-        AuthConfig.EnvironmentUrl = _environmentUrl.Trim();
+        AuthConfig.EnvironmentUrl = AuditService.CrmUrl.Trim();
+        AuditService.CrmUrl = AuthConfig.EnvironmentUrl;
         AuthConfig.TenantId = string.IsNullOrWhiteSpace(_tenantId) ? null : _tenantId.Trim();
         AuthConfig.ClientId = string.IsNullOrWhiteSpace(_clientId) ? null : _clientId.Trim();
         AuthConfig.ClientSecret = string.IsNullOrWhiteSpace(_clientSecret) ? null : _clientSecret.Trim();
@@ -712,6 +717,13 @@
 
         AuthConfig.AdditionalParameters ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         AuthConfig.AdditionalParameters["AuthFlow"] = _oauthFlow;
+
+        _ = PersistUserConfigAsync();
+    }
+
+    private Task PersistUserConfigAsync()
+    {
+        return AuditService.SaveUserConfigAsync();
     }
 
     private void OnDeviceCodeReceived(DeviceCodeChallengeInfo challenge)
@@ -747,7 +759,7 @@
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(_environmentUrl))
+        if (string.IsNullOrWhiteSpace(AuditService.CrmUrl))
         {
             ShowMessage("Por favor configura la URL del entorno primero", "error");
             return;
@@ -756,7 +768,7 @@
         _savedAccounts.Add(new SavedAccount
         {
             Name = _accountName,
-            Url = _environmentUrl,
+            Url = AuditService.CrmUrl,
             AuthType = _authType.ToUpper()
         });
 
@@ -767,7 +779,8 @@
 
     private void LoadAccount(SavedAccount account)
     {
-        _environmentUrl = account.Url;
+        AuditService.CrmUrl = account.Url;
+        _ = PersistUserConfigAsync();
         _authType = account.AuthType.ToLower();
         _activeTab = 0; // Cambiar a pestaña de Dataverse
         ShowMessage($"✓ Configuración '{account.Name}' cargada", "success");
@@ -812,7 +825,7 @@
 # Generado: {DateTime.Now:yyyy-MM-dd HH:mm:ss}
 
 dataverse:
-  environment_url: ""{_environmentUrl}""
+    environment_url: ""{AuditService.CrmUrl}""
   auth_type: ""{_authType}""
     oauth_flow: ""{_oauthFlow}""
   tenant_id: ""{_tenantId}""
