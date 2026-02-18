@@ -1,5 +1,14 @@
 @page "/settings"
+@using AuditHistoryExtractorPro.Domain.Interfaces
+@using AuditHistoryExtractorPro.Domain.ValueObjects
+@using AuditHistoryExtractorPro.Infrastructure.Authentication
+@using DataverseServiceClient = Microsoft.PowerPlatform.Dataverse.Client.ServiceClient
+@using DomainAuthenticationType = AuditHistoryExtractorPro.Domain.ValueObjects.AuthenticationType
+@using Microsoft.Xrm.Sdk.Messages
+@using Microsoft.Xrm.Sdk.Metadata
 @inject NavigationManager Navigation
+@inject AuthenticationConfiguration AuthConfig
+@inject IServiceProvider ServiceProvider
 
 <PageTitle>Configuración - Audit History Extractor Pro</PageTitle>
 
@@ -105,10 +114,74 @@
                     <button class="btn-info" @onclick="TestConnection" disabled="@_isTesting">
                         @(_isTesting ? "⏳ Probando..." : "✓ Probar Conexión")
                     </button>
+                    <button class="btn-info" @onclick="LoadMetadata" disabled="@_isLoadingMetadata || _isTesting">
+                        @(_isLoadingMetadata ? "⏳ Cargando metadatos..." : "📚 Cargar Metadatos")
+                    </button>
                     <button class="btn-secondary" @onclick="ShowConfigYaml">
                         📄 Ver YAML
                     </button>
                 </div>
+
+                @if (_availableEntities.Any())
+                {
+                    <div class="performance-stats" style="margin-top: 20px;">
+                        <h3 style="color: #0078D4; margin-bottom: 15px;">🧠 Metadatos Dataverse</h3>
+
+                        <div class="stats-grid-small">
+                            <div class="stat-item">
+                                <span class="stat-label">Entidades cargadas:</span>
+                                <span class="stat-value">@_availableEntities.Count</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Atributos cargados:</span>
+                                <span class="stat-value">@_availableAttributes.Count</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Acciones auditables:</span>
+                                <span class="stat-value">@_availableActions.Count</span>
+                            </div>
+                        </div>
+
+                        <div class="form-group" style="margin-top: 20px;">
+                            <label>Entidad para revisar atributos:</label>
+                            <select class="form-input" value="@_selectedMetadataEntity" @onchange="OnMetadataEntityChanged">
+                                @foreach (var entity in _availableEntities)
+                                {
+                                    <option value="@entity">@entity</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Atributos (primeros 100):</label>
+                                <div style="max-height: 200px; overflow-y: auto; background: #fff; border: 1px solid #EDEBE9; border-radius: 4px; padding: 10px;">
+                                    @if (_availableAttributes.Any())
+                                    {
+                                        @foreach (var attributeName in _availableAttributes.Take(100))
+                                        {
+                                            <div style="font-size: 13px; color: #323130; margin-bottom: 4px;">• @attributeName</div>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <div style="font-size: 13px; color: #605E5C;">No hay atributos para mostrar.</div>
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Acciones auditables:</label>
+                                <div style="max-height: 200px; overflow-y: auto; background: #fff; border: 1px solid #EDEBE9; border-radius: 4px; padding: 10px;">
+                                    @foreach (var action in _availableActions)
+                                    {
+                                        <div style="font-size: 13px; color: #323130; margin-bottom: 4px;">• @action</div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
 
                 @if (_showYaml)
                 {
@@ -294,6 +367,7 @@
     private string _message = string.Empty;
     private string _messageType = "info"; // success, error, info
     private bool _isTesting = false;
+    private bool _isLoadingMetadata = false;
     private bool _showYaml = false;
     private string _generatedYaml = string.Empty;
 
@@ -317,6 +391,10 @@
     private int _cacheDuration = 30;
     private bool _enableKeyVault = false;
     private string _keyVaultUrl = "";
+    private readonly List<string> _availableEntities = new();
+    private readonly List<string> _availableAttributes = new();
+    private readonly List<string> _availableActions = Enum.GetNames<OperationType>().ToList();
+    private string _selectedMetadataEntity = string.Empty;
 
     protected override void OnInitialized()
     {
@@ -378,15 +456,218 @@
 
         _isTesting = true;
         ShowMessage("Probando conexión con Dataverse...", "info");
-        await Task.Delay(100);
         StateHasChanged();
-        
-        // Simular prueba de conexión
-        await Task.Delay(2000);
-        
-        // En una implementación real, usarías el AuthenticationProvider para validar
-        _isTesting = false;
-        ShowMessage("✓ Conexión exitosa con Dataverse", "success");
+
+        try
+        {
+            SyncAuthConfigurationFromForm();
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var client = await CreateServiceClientAsync(cts.Token);
+            var authProvider = BuildAuthenticationProvider();
+
+            _isTesting = false;
+            ShowMessage(
+                $"✓ Conexión exitosa con Dataverse ({authProvider.GetAuthenticationType()})",
+                "success");
+        }
+        catch (Exception ex)
+        {
+            _isTesting = false;
+            ShowMessage($"❌ Error de conexión: {ex.Message}", "error");
+        }
+    }
+
+    private async Task LoadMetadata()
+    {
+        if (string.IsNullOrWhiteSpace(_environmentUrl))
+        {
+            ShowMessage("Por favor configura la URL del entorno primero", "error");
+            return;
+        }
+
+        _isLoadingMetadata = true;
+        ShowMessage("Cargando metadatos de Dataverse...", "info");
+        StateHasChanged();
+
+        try
+        {
+            SyncAuthConfigurationFromForm();
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            var client = await CreateServiceClientAsync(cts.Token);
+
+            var request = new RetrieveAllEntitiesRequest
+            {
+                EntityFilters = EntityFilters.Entity,
+                RetrieveAsIfPublished = true
+            };
+
+            var response = await Task.Run(
+                () => (RetrieveAllEntitiesResponse)client.Execute(request),
+                cts.Token);
+
+            var entities = response.EntityMetadata?
+                .Select(e => e.LogicalName)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .ToList() ?? new List<string>();
+
+            _availableEntities.Clear();
+            _availableEntities.AddRange(entities);
+
+            _selectedMetadataEntity = _availableEntities.FirstOrDefault() ?? string.Empty;
+            await LoadSelectedEntityAttributes(client, cts.Token);
+
+            ShowMessage(
+                $"✓ Metadatos cargados: {_availableEntities.Count} entidades y {_availableAttributes.Count} atributos en '{_selectedMetadataEntity}'",
+                "success");
+        }
+        catch (Exception ex)
+        {
+            _availableEntities.Clear();
+            _availableAttributes.Clear();
+            _selectedMetadataEntity = string.Empty;
+            ShowMessage($"❌ No fue posible cargar metadatos: {ex.Message}", "error");
+        }
+        finally
+        {
+            _isLoadingMetadata = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnMetadataEntityChanged(ChangeEventArgs args)
+    {
+        _selectedMetadataEntity = args.Value?.ToString() ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(_selectedMetadataEntity))
+        {
+            _availableAttributes.Clear();
+            return;
+        }
+
+        _isLoadingMetadata = true;
+        StateHasChanged();
+
+        try
+        {
+            SyncAuthConfigurationFromForm();
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+            var client = await CreateServiceClientAsync(cts.Token);
+            await LoadSelectedEntityAttributes(client, cts.Token);
+        }
+        catch (Exception ex)
+        {
+            _availableAttributes.Clear();
+            ShowMessage($"❌ Error cargando atributos de '{_selectedMetadataEntity}': {ex.Message}", "error");
+        }
+        finally
+        {
+            _isLoadingMetadata = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadSelectedEntityAttributes(DataverseServiceClient client, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(_selectedMetadataEntity))
+        {
+            _availableAttributes.Clear();
+            return;
+        }
+
+        var request = new RetrieveEntityRequest
+        {
+            LogicalName = _selectedMetadataEntity,
+            EntityFilters = EntityFilters.Attributes,
+            RetrieveAsIfPublished = true
+        };
+
+        var response = await Task.Run(
+            () => (RetrieveEntityResponse)client.Execute(request),
+            cancellationToken);
+
+        var attributes = response.EntityMetadata?.Attributes?
+            .Select(a => a.LogicalName)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? new List<string>();
+
+        _availableAttributes.Clear();
+        _availableAttributes.AddRange(attributes);
+    }
+
+    private async Task<DataverseServiceClient> CreateServiceClientAsync(CancellationToken cancellationToken)
+    {
+        var authProvider = BuildAuthenticationProvider();
+        var token = await authProvider.GetAccessTokenAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            throw new InvalidOperationException("No se obtuvo un token válido para Dataverse.");
+        }
+
+        var connectionString =
+            $"AuthType=OAuth;Url={AuthConfig.EnvironmentUrl};AccessToken={token};RequireNewInstance=True";
+        var client = new DataverseServiceClient(connectionString);
+
+        if (!client.IsReady)
+        {
+            throw new InvalidOperationException(
+                string.IsNullOrWhiteSpace(client.LastError)
+                    ? "El cliente Dataverse no está listo."
+                    : client.LastError);
+        }
+
+        return client;
+    }
+
+    private IAuthenticationProvider BuildAuthenticationProvider()
+    {
+        AuthConfig.Validate();
+
+        return AuthConfig.Type switch
+        {
+            DomainAuthenticationType.OAuth2 => new OAuth2AuthenticationProvider(
+                AuthConfig,
+                ServiceProvider.GetRequiredService<AuditHistoryExtractorPro.Domain.Interfaces.ILogger<OAuth2AuthenticationProvider>>()),
+
+            DomainAuthenticationType.ClientSecret => new ClientSecretAuthenticationProvider(
+                AuthConfig,
+                null,
+                ServiceProvider.GetRequiredService<AuditHistoryExtractorPro.Domain.Interfaces.ILogger<ClientSecretAuthenticationProvider>>()),
+
+            DomainAuthenticationType.Certificate => new CertificateAuthenticationProvider(
+                AuthConfig,
+                ServiceProvider.GetRequiredService<AuditHistoryExtractorPro.Domain.Interfaces.ILogger<CertificateAuthenticationProvider>>()),
+
+            DomainAuthenticationType.ManagedIdentity => new ManagedIdentityAuthenticationProvider(
+                AuthConfig,
+                ServiceProvider.GetRequiredService<AuditHistoryExtractorPro.Domain.Interfaces.ILogger<ManagedIdentityAuthenticationProvider>>()),
+
+            _ => throw new NotSupportedException($"Authentication type {AuthConfig.Type} is not supported")
+        };
+    }
+
+    private void SyncAuthConfigurationFromForm()
+    {
+        AuthConfig.EnvironmentUrl = _environmentUrl.Trim();
+        AuthConfig.TenantId = string.IsNullOrWhiteSpace(_tenantId) ? null : _tenantId.Trim();
+        AuthConfig.ClientId = string.IsNullOrWhiteSpace(_clientId) ? null : _clientId.Trim();
+        AuthConfig.ClientSecret = string.IsNullOrWhiteSpace(_clientSecret) ? null : _clientSecret.Trim();
+        AuthConfig.CertificatePath = string.IsNullOrWhiteSpace(_certificatePath) ? null : _certificatePath.Trim();
+
+        AuthConfig.Type = _authType switch
+        {
+            "oauth2" => DomainAuthenticationType.OAuth2,
+            "client_secret" => DomainAuthenticationType.ClientSecret,
+            "certificate" => DomainAuthenticationType.Certificate,
+            "managed_identity" => DomainAuthenticationType.ManagedIdentity,
+            _ => DomainAuthenticationType.OAuth2
+        };
     }
 
     private void ShowConfigYaml()

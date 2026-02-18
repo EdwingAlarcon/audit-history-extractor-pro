@@ -228,6 +228,13 @@ public class DataverseAuditRepository : IAuditRepository
             query.Criteria.AddCondition("userid", ConditionOperator.In, criteria.UserIds.ToArray());
         }
 
+        // Filtrar por recordId enviado como custom filter desde UI
+        if (criteria.CustomFilters?.TryGetValue("recordId", out var recordIdValue) == true
+            && Guid.TryParse(recordIdValue, out var recordId))
+        {
+            query.Criteria.AddCondition("objectid", ConditionOperator.Equal, recordId);
+        }
+
         query.Orders.Add(new OrderExpression("createdon", OrderType.Descending));
 
         return query;
