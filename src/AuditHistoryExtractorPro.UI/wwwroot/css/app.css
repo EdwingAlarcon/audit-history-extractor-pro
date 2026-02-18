@@ -86,6 +86,52 @@ body {
     transition: background-color 0.18s ease, transform 0.12s ease, box-shadow 0.18s ease;
 }
 
+.btn-ms-primary,
+.btn-ms-success {
+    border: none;
+    color: #ffffff;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 16px;
+    line-height: 1;
+    padding: 14px 28px;
+    cursor: pointer;
+    transition: background-color 0.18s ease, transform 0.12s ease, box-shadow 0.18s ease;
+}
+
+.btn-ms-primary {
+    background-color: #00A4EF;
+}
+
+.btn-ms-success {
+    background-color: #7FBA00;
+}
+
+.btn-ms-primary:hover:not(:disabled) {
+    background-color: #0094D8;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 164, 239, 0.35);
+}
+
+.btn-ms-success:hover:not(:disabled) {
+    background-color: #6FA300;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(127, 186, 0, 0.35);
+}
+
+.btn-ms-primary:active:not(:disabled),
+.btn-ms-success:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.btn-ms-primary:disabled,
+.btn-ms-success:disabled {
+    background-color: #a19f9d;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
 .btn-extract {
     background-color: #00A4EF;
 }
@@ -132,6 +178,8 @@ body {
 .btn-success:focus,
 .btn-extract:focus,
 .btn-export:focus,
+.btn-ms-primary:focus,
+.btn-ms-success:focus,
 .btn-secondary:focus,
 .form-input:focus,
 select:focus,
