@@ -10,11 +10,15 @@ Restaurar y modernizar la UI sin romper funcionalidad, ejecutando cambios peque�
 - No mezclar refactor de servicios con cambios visuales en el mismo commit.
 
 ## Fase 0 — Baseline y seguridad
-- [ ] Confirmar rama de trabajo: `refactor/ui-surgical-cleanup`.
-- [ ] Confirmar rama de respaldo existente (`backup/pre-cleanup-2026-02-18`).
-- [ ] Ejecutar: `dotnet build AuditHistoryExtractorPro.sln`.
-- [ ] Ejecutar: `dotnet run --project src/AuditHistoryExtractorPro.UI/AuditHistoryExtractorPro.UI.csproj`.
+- [x] Confirmar rama de trabajo: `refactor/ui-surgical-cleanup`.
+- [x] Confirmar rama de respaldo existente (`backup/pre-cleanup-2026-02-18`).
+- [x] Ejecutar: `dotnet build AuditHistoryExtractorPro.sln`.
+- [x] Ejecutar: `dotnet run --project src/AuditHistoryExtractorPro.UI/AuditHistoryExtractorPro.UI.csproj`.
 - [ ] Capturar evidencia visual (pantallas de Index, Extract, Export, History, Settings).
+
+Estado Fase 0:
+- Reporte técnico generado en `docs/UI_BASELINE_REPORT_2026-02-18.md`.
+- Pendiente: capturas visuales manuales para anexar evidencia UI.
 
 ## Fase 1 — Configuración UI sin secretos
 - [ ] Mantener `appsettings.example.json` como plantilla versionada.
