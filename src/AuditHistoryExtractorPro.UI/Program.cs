@@ -29,6 +29,8 @@ builder.Services.AddSingleton<ICacheService, MemoryCacheService>();
 builder.Services.AddSingleton<IAuditProcessor, AuditProcessor>();
 builder.Services.AddScoped<AuditSessionState>();
 builder.Services.AddSingleton<HistoryViewService>();
+builder.Services.AddSingleton<ExtractViewService>();
+builder.Services.AddSingleton<ExportViewService>();
 
 // Configuración de Dataverse desde appsettings.json
 var dataverseConfig = builder.Configuration.GetSection("Dataverse");

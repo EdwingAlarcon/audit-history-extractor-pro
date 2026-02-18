@@ -9,6 +9,7 @@
 @inject ILogger<Extract> Logger
 @inject NavigationManager Navigation
 @inject AuditSessionState SessionState
+@inject ExtractViewService ExtractViewService
 
 <PageTitle>Nueva Extracción - Audit History Extractor Pro</PageTitle>
 
@@ -146,60 +147,27 @@
 
         try
         {
-            // Validación básica
-            if (string.IsNullOrWhiteSpace(_entityName))
+            var criteriaResult = ExtractViewService.BuildCriteria(new ExtractInputModel
             {
-                _message = "⚠️ Por favor ingrese el nombre de la entidad.";
+                EntityName = _entityName,
+                RecordId = _recordId,
+                StartDate = _startDate,
+                EndDate = _endDate,
+                IncludeCreate = _includeCreate,
+                IncludeUpdate = _includeUpdate,
+                IncludeDelete = _includeDelete,
+                MaxRecords = _maxRecords
+            });
+
+            if (!criteriaResult.Success || criteriaResult.Criteria is null)
+            {
+                _message = criteriaResult.ErrorMessage ?? "❌ No fue posible construir los criterios de extracción.";
                 _isError = true;
                 _isExtracting = false;
                 return;
             }
 
-            if (_startDate.HasValue && _endDate.HasValue && _startDate > _endDate)
-            {
-                _message = "⚠️ La Fecha Inicio no puede ser mayor que la Fecha Fin.";
-                _isError = true;
-                _isExtracting = false;
-                return;
-            }
-
-            if (!string.IsNullOrWhiteSpace(_recordId) && !Guid.TryParse(_recordId, out _))
-            {
-                _message = "⚠️ El ID del Registro debe ser un GUID válido.";
-                _isError = true;
-                _isExtracting = false;
-                return;
-            }
-
-            if (_maxRecords < 1 || _maxRecords > 10000)
-            {
-                _message = "⚠️ El límite de registros debe estar entre 1 y 10000.";
-                _isError = true;
-                _isExtracting = false;
-                return;
-            }
-
-            // Crear criterios de extracción
-            var operations = new List<OperationType>();
-            if (_includeCreate) operations.Add(OperationType.Create);
-            if (_includeUpdate) operations.Add(OperationType.Update);
-            if (_includeDelete) operations.Add(OperationType.Delete);
-
-            var customFilters = new Dictionary<string, string>();
-            if (!string.IsNullOrWhiteSpace(_recordId))
-            {
-                customFilters["recordId"] = _recordId.Trim();
-            }
-
-            var criteria = new ExtractionCriteria
-            {
-                EntityNames = new List<string> { _entityName.Trim() },
-                FromDate = _startDate,
-                ToDate = _endDate,
-                Operations = operations.Any() ? operations : null,
-                PageSize = _maxRecords,
-                CustomFilters = customFilters.Any() ? customFilters : null
-            };
+            var criteria = criteriaResult.Criteria;
 
             var progress = new Progress<ExtractionProgress>(p =>
             {

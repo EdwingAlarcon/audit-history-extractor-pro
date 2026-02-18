@@ -8,6 +8,7 @@
 @inject ILogger<Export> Logger
 @inject NavigationManager Navigation
 @inject AuditSessionState SessionState
+@inject ExportViewService ExportViewService
 
 <PageTitle>Exportar - Audit History Extractor Pro</PageTitle>
 
@@ -176,60 +177,27 @@
 
         try
         {
-            // Validación
-            if (string.IsNullOrWhiteSpace(_fileName))
-            {
-                _message = "⚠️ Por favor ingrese un nombre para el archivo.";
-                _isError = true;
-                _isExporting = false;
-                return;
-            }
-
-            if (_totalRecords <= 0)
-            {
-                _message = "⚠️ No hay registros para exportar. Realiza una extracción primero.";
-                _isError = true;
-                _isExporting = false;
-                return;
-            }
-
-            var normalizedFileName = _fileName.Trim();
-            if (normalizedFileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-            {
-                _message = "⚠️ El nombre del archivo contiene caracteres inválidos.";
-                _isError = true;
-                _isExporting = false;
-                return;
-            }
-
-            // Crear configuración de exportación
-            var config = new ExportConfiguration
-            {
-                Format = _format switch
-                {
-                    "Excel" => ExportFormat.Excel,
-                    "CSV" => ExportFormat.Csv,
-                    "JSON" => ExportFormat.Json,
-                    _ => ExportFormat.Excel
-                },
-                OutputPath = string.IsNullOrWhiteSpace(_outputPath) ? 
-                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "AuditExports") : 
-                    _outputPath.Trim(),
-                FileName = normalizedFileName,
-                CompressOutput = _compressFile,
-                IncludeTimestamp = true
-            };
-
             var records = SessionState.GetRecordsCopy();
             _totalRecords = records.Count;
 
-            if (_totalRecords <= 0)
+            var configResult = ExportViewService.BuildConfiguration(new ExportInputModel
             {
-                _message = "⚠️ No hay registros para exportar. Realiza una extracción primero.";
+                Format = _format,
+                FileName = _fileName,
+                OutputPath = _outputPath,
+                CompressFile = _compressFile,
+                TotalRecords = _totalRecords
+            });
+
+            if (!configResult.Success || configResult.Configuration is null)
+            {
+                _message = configResult.ErrorMessage ?? "❌ No fue posible construir la configuración de exportación.";
                 _isError = true;
                 _isExporting = false;
                 return;
             }
+
+            var config = configResult.Configuration;
 
             var command = new ExportAuditCommand
             {
