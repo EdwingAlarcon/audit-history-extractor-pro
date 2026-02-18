@@ -99,7 +99,15 @@ builder.Services.AddSingleton<IAuditRepository, DataverseAuditRepository>();
 builder.Services.AddTransient<ExcelExportService>();
 builder.Services.AddTransient<CsvExportService>();
 builder.Services.AddTransient<JsonExportService>();
-builder.Services.AddTransient<IExportService, CompositeExportService>();
+builder.Services.AddTransient<IExportService>(sp =>
+    new CompositeExportService(
+        new IExportService[]
+        {
+            sp.GetRequiredService<ExcelExportService>(),
+            sp.GetRequiredService<CsvExportService>(),
+            sp.GetRequiredService<JsonExportService>()
+        },
+        sp.GetRequiredService<AuditHistoryExtractorPro.Domain.Interfaces.ILogger<CompositeExportService>>()));
 
 // MediatR
 builder.Services.AddMediatR(cfg => 
