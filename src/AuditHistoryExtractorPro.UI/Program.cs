@@ -32,6 +32,7 @@ builder.Services.AddSingleton<HistoryViewService>();
 builder.Services.AddSingleton<ExtractViewService>();
 builder.Services.AddSingleton<ExportViewService>();
 builder.Services.AddScoped<ExtractPageCoordinator>();
+builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<ExportPageCoordinator>();
 builder.Services.AddScoped<HistoryPageCoordinator>();
 
