@@ -5,12 +5,9 @@
 @using AuditHistoryExtractorPro.Domain.Interfaces
 @using AuditHistoryExtractorPro.UI.Services
 @using AuditHistoryExtractorPro.UI.ViewModels
-@using MediatR
-@inject IMediator Mediator
 @inject ILogger<Extract> Logger
 @inject NavigationManager Navigation
-@inject AuditSessionState SessionState
-@inject ExtractViewService ExtractViewService
+@inject ExtractPageCoordinator ExtractPageCoordinator
 
 <PageTitle>Nueva Extracción - Audit History Extractor Pro</PageTitle>
 
@@ -133,28 +130,6 @@
 
         try
         {
-            var criteriaResult = ExtractViewService.BuildCriteria(new ExtractInputModel
-            {
-                EntityName = _vm.EntityName,
-                RecordId = _vm.RecordId,
-                StartDate = _vm.StartDate,
-                EndDate = _vm.EndDate,
-                IncludeCreate = _vm.IncludeCreate,
-                IncludeUpdate = _vm.IncludeUpdate,
-                IncludeDelete = _vm.IncludeDelete,
-                MaxRecords = _vm.MaxRecords
-            });
-
-            if (!criteriaResult.Success || criteriaResult.Criteria is null)
-            {
-                _vm.Message = criteriaResult.ErrorMessage ?? "❌ No fue posible construir los criterios de extracción.";
-                _vm.IsError = true;
-                _vm.IsExtracting = false;
-                return;
-            }
-
-            var criteria = criteriaResult.Criteria;
-
             var progress = new Progress<ExtractionProgress>(p =>
             {
                 _vm.Progress = (int)Math.Round(p.PercentComplete, MidpointRounding.AwayFromZero);
@@ -164,26 +139,31 @@
                 InvokeAsync(StateHasChanged);
             });
 
-            // Ejecutar comando
-            var command = new ExtractAuditCommand
-            {
-                Criteria = criteria,
-                Progress = progress
-            };
+            var result = await ExtractPageCoordinator.ExecuteAsync(
+                new ExtractInputModel
+                {
+                    EntityName = _vm.EntityName,
+                    RecordId = _vm.RecordId,
+                    StartDate = _vm.StartDate,
+                    EndDate = _vm.EndDate,
+                    IncludeCreate = _vm.IncludeCreate,
+                    IncludeUpdate = _vm.IncludeUpdate,
+                    IncludeDelete = _vm.IncludeDelete,
+                    MaxRecords = _vm.MaxRecords
+                },
+                progress,
+                _vm.ExtractionCts.Token);
 
-            var response = await Mediator.Send(command, _vm.ExtractionCts.Token);
-
-            if (response.Success)
+            if (result.Success)
             {
-                _vm.RecordsExtracted = response.Records.Count;
-                SessionState.SetRecords(response.Records);
-                _vm.Message = "✅ Extracción completada exitosamente!";
+                _vm.RecordsExtracted = result.RecordsExtracted;
+                _vm.Message = result.Message;
                 _vm.IsError = false;
                 _vm.Progress = 100;
             }
             else
             {
-                _vm.Message = $"❌ Error: {response.ErrorMessage}";
+                _vm.Message = result.Message;
                 _vm.IsError = true;
             }
         }

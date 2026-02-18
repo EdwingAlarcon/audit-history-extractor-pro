@@ -4,12 +4,9 @@
 @using AuditHistoryExtractorPro.Domain.Entities
 @using AuditHistoryExtractorPro.UI.Services
 @using AuditHistoryExtractorPro.UI.ViewModels
-@using MediatR
-@inject IMediator Mediator
 @inject ILogger<Export> Logger
 @inject NavigationManager Navigation
-@inject AuditSessionState SessionState
-@inject ExportViewService ExportViewService
+@inject ExportPageCoordinator ExportPageCoordinator
 
 <PageTitle>Exportar - Audit History Extractor Pro</PageTitle>
 
@@ -150,7 +147,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _vm.TotalRecords = SessionState.Count;
+        _vm.TotalRecords = ExportPageCoordinator.GetAvailableRecordCount();
         await Task.CompletedTask;
     }
 
@@ -163,10 +160,7 @@
 
         try
         {
-            var records = SessionState.GetRecordsCopy();
-            _vm.TotalRecords = records.Count;
-
-            var configResult = ExportViewService.BuildConfiguration(new ExportInputModel
+            var result = await ExportPageCoordinator.ExecuteAsync(new ExportInputModel
             {
                 Format = _vm.Format,
                 FileName = _vm.FileName,
@@ -175,37 +169,21 @@
                 TotalRecords = _vm.TotalRecords
             });
 
-            if (!configResult.Success || configResult.Configuration is null)
+            _vm.TotalRecords = result.TotalRecords;
+
+            if (!result.Success)
             {
-                _vm.Message = configResult.ErrorMessage ?? "❌ No fue posible construir la configuración de exportación.";
+                _vm.Message = result.Message;
                 _vm.IsError = true;
                 _vm.IsExporting = false;
                 return;
             }
 
-            var config = configResult.Configuration;
-
-            var command = new ExportAuditCommand
-            {
-                Records = records,
-                Configuration = config
-            };
-
-            var response = await Mediator.Send(command);
-
-            if (response.Success)
-            {
-                _vm.ExportedFilePath = response.FilePath ?? string.Empty;
-                _vm.FileSize = response.FileSize;
-                _vm.ExportCount++;
-                _vm.Message = "✅ Exportación completada exitosamente!";
-                _vm.IsError = false;
-            }
-            else
-            {
-                _vm.Message = $"❌ Error: {response.ErrorMessage}";
-                _vm.IsError = true;
-            }
+            _vm.ExportedFilePath = result.ExportedFilePath;
+            _vm.FileSize = result.FileSize;
+            _vm.ExportCount++;
+            _vm.Message = result.Message;
+            _vm.IsError = false;
         }
         catch (Exception ex)
         {

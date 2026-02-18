@@ -78,6 +78,7 @@ Estado Fase 4 (avance):
 - `History` delega filtrado, paginación y cálculo de estadísticas en `HistoryViewService`, reduciendo lógica dentro de `History.razor`.
 - `Extract` y `Export` delegan validación/mapeo de entrada en `ExtractViewService` y `ExportViewService`, reduciendo reglas en componentes Razor.
 - `History`, `Extract` y `Export` usan modelos de estado explícitos de vista (`*PageViewModel`) para centralizar estado UI por página.
+- `Extract` y `Export` encapsulan la orquestación de casos de uso en coordinadores UI (`ExtractPageCoordinator`, `ExportPageCoordinator`) en lugar de invocar MediatR directamente desde Razor.
 
 ## Fase 5 — Hardening antes de merge
 - [ ] `dotnet build AuditHistoryExtractorPro.sln`.
