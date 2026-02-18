@@ -1,4 +1,5 @@
 using AuditHistoryExtractorPro.Models;
+using AuditHistoryExtractorPro.Services.Resilience;
 using Microsoft.PowerPlatform.Dataverse.Client;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Query;
@@ -22,7 +23,7 @@ public class DataverseAuditRepository : IAuditRepository
     private readonly AuthenticationConfiguration _config;
     private readonly ILogger<DataverseAuditRepository> _logger;
     private readonly ICacheService _cacheService;
-    private readonly IAsyncPolicy<EntityCollection> _retryPolicy;
+    private readonly IAsyncPolicy _retryPolicy;
     private ServiceClient? _serviceClient;
 
     public DataverseAuditRepository(
@@ -37,7 +38,7 @@ public class DataverseAuditRepository : IAuditRepository
         _cacheService = cacheService;
 
         // ⭐ MEJORADO: Usar política compuesta con manejo específico de 429
-        _retryPolicy = ResiliencePolicy.CreateCompositePolicy<EntityCollection>(
+        _retryPolicy = ResiliencePolicy.CreateCompositePolicyBase(
             logger,
             timeout: TimeSpan.FromSeconds(120),
             maxThrottleRetries: 5);

@@ -1,8 +1,4 @@
-using AuditHistoryExtractorPro.Application.UseCases.ExtractAudit;
-using AuditHistoryExtractorPro.Application.UseCases.ExportAudit;
-using AuditHistoryExtractorPro.Application.UseCases.CompareRecords;
 using AuditHistoryExtractorPro.Models;
-using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 using Spectre.Console;
 using System.CommandLine;
@@ -106,8 +102,6 @@ public static class ExtractCommand
             .Spinner(Spinner.Known.Dots)
             .StartAsync("Extracting audit records...", async ctx =>
             {
-                var mediator = services.GetRequiredService<IMediator>();
-
                 var criteria = new ExtractionCriteria
                 {
                     EntityNames = entities.ToList(),
@@ -118,20 +112,18 @@ public static class ExtractCommand
                     Operations = operations?.ToList()
                 };
 
-                var progress = new Progress<Domain.Interfaces.ExtractionProgress>(p =>
+                var progress = new Progress<int>(p =>
                 {
-                    ctx.Status($"Processing {p.CurrentEntity}: {p.ProcessedRecords}/{p.TotalRecords} ({p.PercentComplete:F1}%)");
+                    ctx.Status($"Processing... {p}% complete");
                 });
 
-                var extractCommand = new ExtractAuditCommand
-                {
-                    Criteria = criteria,
-                    Progress = progress
-                };
+                var repository = services.GetRequiredService<IAuditRepository>();
+                var exportService = services.GetRequiredService<IExportService>();
 
-                var extractResult = await mediator.Send(extractCommand);
+                var records = await repository.ExtractAuditRecordsAsync(criteria);
+                var extractResult = new { Success = true, Records = records, ErrorMessage = (string?)null };
 
-                if (!extractResult.Success)
+                if (extractResult.Records == null)
                 {
                     AnsiConsole.MarkupLine($"[red]✗ Extraction failed: {extractResult.ErrorMessage}[/]");
                     return;
@@ -150,13 +142,8 @@ public static class ExtractCommand
                     CompressOutput = extractResult.Records.Count > 10000
                 };
 
-                var exportCommand = new ExportAuditCommand
-                {
-                    Records = extractResult.Records,
-                    Configuration = exportConfig
-                };
-
-                var exportResult = await mediator.Send(exportCommand);
+                var exportFilePath = await exportService.ExportAsync(extractResult.Records, exportConfig);
+                var exportResult = new { Success = !string.IsNullOrEmpty(exportFilePath), FilePath = exportFilePath, FileSize = new System.IO.FileInfo(exportFilePath ?? ".").Length, ErrorMessage = (string?)null };
 
                 if (exportResult.Success)
                 {
@@ -259,17 +246,24 @@ public static class CompareCommand
             await AnsiConsole.Status()
                 .StartAsync("Comparing record versions...", async ctx =>
                 {
-                    var mediator = services.GetRequiredService<IMediator>();
+                    var repository = services.GetRequiredService<IAuditRepository>();
 
-                    var query = new CompareRecordsQuery
+                    var records1 = await repository.ExtractAuditRecordsAsync(new ExtractionCriteria
                     {
-                        EntityName = entity,
-                        RecordId = recordId,
+                        EntityNames = new List<string> { entity },
                         FromDate = from,
                         ToDate = to
-                    };
+                    });
+                    var records2 = await repository.GetRecordHistoryAsync(entity, recordId, from, to);
 
-                    var result = await mediator.Send(query);
+                    var processor = services.GetRequiredService<IAuditProcessor>();
+                    var comparisons = new List<RecordComparison>();
+                    foreach (var r1 in records1.Take(10))
+                    {
+                        var r2 = records2.FirstOrDefault(r => r.RecordId == r1.RecordId);
+                        if (r2 != null) comparisons.Add(await processor.CompareRecordVersionsAsync(r1, r2));
+                    }
+                    var result = new { Success = true, Comparisons = comparisons, ErrorMessage = (string?)null };
 
                     if (!result.Success)
                     {
@@ -284,7 +278,7 @@ public static class CompareCommand
         return command;
     }
 
-    private static void DisplayComparisons(List<Domain.Entities.RecordComparison> comparisons)
+    private static void DisplayComparisons(List<RecordComparison> comparisons)
     {
         if (!comparisons.Any())
         {
@@ -305,13 +299,13 @@ public static class CompareCommand
             table.AddColumn("New Value");
             table.AddColumn("Type");
 
-            foreach (var diff in comparison.Differences.Where(d => d.Type != Domain.Entities.DifferenceType.Unchanged))
+            foreach (var diff in comparison.Differences.Where(d => d.Type != DifferenceType.Unchanged))
             {
                 var typeColor = diff.Type switch
                 {
-                    Domain.Entities.DifferenceType.Added => "green",
-                    Domain.Entities.DifferenceType.Modified => "yellow",
-                    Domain.Entities.DifferenceType.Removed => "red",
+                    DifferenceType.Added => "green",
+                    DifferenceType.Modified => "yellow",
+                    DifferenceType.Removed => "red",
                     _ => "white"
                 };
 

@@ -3,6 +3,7 @@ using Polly.CircuitBreaker;
 using Polly.Retry;
 using System.ServiceModel;
 using Microsoft.Xrm.Sdk;
+using AuditHistoryExtractorPro.Models;
 
 namespace AuditHistoryExtractorPro.Services.Resilience;
 
@@ -24,69 +25,62 @@ public static class ResiliencePolicy
     {
         var jitter = new Random();
 
-        return Policy<T>
-            .Handle<ServiceProtocolException>(ex => 
-                // Detectar 429 por el código de estado en el mensaje
-                ex.Message.Contains("429") || 
+        var retryPolicy = Policy<T>
+            .Handle<FaultException>(ex =>
+                ex.Message.Contains("429") ||
                 ex.Message.Contains("Too Many Requests") ||
                 ex.InnerException?.Message.Contains("429") == true)
             .Or<TimeoutException>()
-            .Or<FaultException>(ex => 
-                // Otros errores transitorios de Dataverse
+            .Or<FaultException>(ex =>
                 ex.Message.Contains("ConcurrencyVersionMismatch") ||
                 ex.Message.Contains("QueryTimeout") ||
                 ex.Message.Contains("timeout", StringComparison.OrdinalIgnoreCase))
             .WaitAndRetryAsync(
                 retryCount: maxRetries,
-                sleepDurationProvider: (attempt, exception, context) =>
+                sleepDurationProvider: (attempt, outcome, context) =>
                 {
-                    // Extraer Retry-After si está disponible en la respuesta
-                    var retryAfter = ExtractRetryAfter(exception);
+                    var retryAfter = ExtractRetryAfter(outcome.Exception);
                     if (retryAfter.HasValue)
                     {
                         logger.LogWarning(
-                            "Throttling detected. Server requested retry after {Seconds}s",
+                            "Throttling detected. Retry after {Seconds}s",
                             retryAfter.Value.TotalSeconds);
                         return retryAfter.Value;
                     }
 
-                    // Exponential backoff con jitter (random component)
-                    // 2^1 + jitter(0-1000ms), 2^2 + jitter, 2^3 + jitter, etc.
                     var exponentialDelay = TimeSpan.FromSeconds(Math.Pow(2, attempt));
                     var jitterDelay = TimeSpan.FromMilliseconds(jitter.Next(0, 1000));
-                    var totalDelay = exponentialDelay.Add(jitterDelay);
-
-                    logger.LogWarning(
-                        "Retry {Attempt} after {DelayMs}ms due to {ExceptionType}: {Message}",
-                        attempt,
-                        totalDelay.TotalMilliseconds,
-                        exception?.GetType().Name,
-                        exception?.Message);
-
-                    return totalDelay;
+                    return exponentialDelay.Add(jitterDelay);
                 },
-                onRetry: (outcome, duration, retryCount, context) =>
+                onRetryAsync: (outcome, duration, retryCount, context) =>
                 {
                     logger.LogWarning(
-                        "Retry {RetryCount} in progress: Waiting {DurationMs}ms. " +
-                        "Exception: {Exception}",
+                        "Retry {RetryCount} in progress: Waiting {DurationMs}ms. Exception: {Exception}",
                         retryCount,
                         duration.TotalMilliseconds,
-                        outcome.Exception?.Message);
-                })
+                        outcome.Exception?.Message ?? "unknown");
+                    return Task.CompletedTask;
+                });
+
+        var circuitBreakerPolicy = Policy<T>
+            .Handle<FaultException>()
+            .Or<TimeoutException>()
             .CircuitBreakerAsync(
                 handledEventsAllowedBeforeBreaking: 10,
                 durationOfBreak: TimeSpan.FromMinutes(1),
-                onBreak: (exception, duration) =>
+                onBreak: (outcome, duration) =>
                 {
-                    logger.LogError(
-                        $"Circuit breaker opened. Will retry after {duration.TotalMinutes} minutes. " +
-                        $"Last exception: {exception.Exception?.Message}");
+                    logger.LogError(null,
+                        "Circuit breaker opened for {Duration}min. Last exception: {Message}",
+                        duration.TotalMinutes,
+                        outcome.Exception?.Message ?? "unknown");
                 },
                 onReset: () =>
                 {
                     logger.LogInformation("Circuit breaker reset - resuming normal operations");
                 });
+
+        return Policy.WrapAsync(retryPolicy, circuitBreakerPolicy);
     }
 
     /// <summary>
@@ -103,7 +97,10 @@ public static class ResiliencePolicy
             onTimeoutAsync: (context, timespan, taskName, exception) =>
             {
                 logger.LogError(
-                    $"Operation timed out after {timespan.TotalSeconds}s. Task: {taskName}");
+                    null,
+                    "Operation timed out after {Seconds}s. Task: {Task}",
+                    timespan.TotalSeconds,
+                    taskName?.ToString() ?? "unknown");
                 return Task.CompletedTask;
             });
     }
@@ -121,6 +118,51 @@ public static class ResiliencePolicy
         var retryPolicy = CreateThrottlingRetryPolicy<T>(logger, maxThrottleRetries);
 
         // El orden importa: Retry wrap Timeout para que los timeouts pueden ser reintentados
+        return Policy.WrapAsync(retryPolicy, timeoutPolicy);
+    }
+
+    /// <summary>
+    /// Política compuesta no-genérica para uso en repositorios con múltiples tipos de retorno
+    /// </summary>
+    public static IAsyncPolicy CreateCompositePolicyBase<T>(
+        ILogger<T> logger,
+        TimeSpan? timeout = null,
+        int maxThrottleRetries = 5) where T : class
+    {
+        var jitter = new Random();
+        timeout ??= TimeSpan.FromSeconds(120);
+
+        var retryPolicy = Policy
+            .Handle<FaultException>(ex =>
+                ex.Message.Contains("429") ||
+                ex.Message.Contains("Too Many Requests") ||
+                ex.Message.Contains("timeout", StringComparison.OrdinalIgnoreCase))
+            .Or<TimeoutException>()
+            .WaitAndRetryAsync(
+                retryCount: maxThrottleRetries,
+                sleepDurationProvider: attempt =>
+                {
+                    var exponentialDelay = TimeSpan.FromSeconds(Math.Pow(2, attempt));
+                    var jitterDelay = TimeSpan.FromMilliseconds(jitter.Next(0, 1000));
+                    return exponentialDelay.Add(jitterDelay);
+                },
+                onRetry: (exception, duration, retryCount, context) =>
+                {
+                    logger.LogWarning(
+                        "Retry {RetryCount} after {DurationMs}ms: {Message}",
+                        retryCount,
+                        duration.TotalMilliseconds,
+                        exception.Message);
+                });
+
+        var timeoutPolicy = Policy.TimeoutAsync(
+            timeout.Value,
+            onTimeoutAsync: (context, timespan, task) =>
+            {
+                logger.LogError(null, "Operation timed out after {Seconds}s", timespan.TotalSeconds);
+                return Task.CompletedTask;
+            });
+
         return Policy.WrapAsync(retryPolicy, timeoutPolicy);
     }
 

@@ -1,6 +1,7 @@
 using AuditHistoryExtractorPro.Models;
 using CsvHelper;
 using CsvHelper.Configuration;
+using CsvHelper.Configuration.Attributes;
 using System.Globalization;
 using System.IO.Compression;
 using System.Text;
@@ -189,7 +190,7 @@ public class PowerBIOptimizedCsvExportService : IExportService
         
         // Categoría 3: Cambio
         var actionCode = ParseActionCodeFromOperation(record.Operation);
-        csv.WriteField((int)actionCode, false);
+        csv.WriteField(((int)actionCode).ToString(), false);
         csv.WriteField(record.Operation, false);
         csv.WriteField(GetActionCategory(actionCode), false);
         
@@ -242,28 +243,12 @@ public class PowerBIOptimizedCsvExportService : IExportService
             TrimOptions = TrimOptions.Trim,
             BadDataFound = null,                    // No lanzar excepción con datos malformados
             MissingFieldFound = null,               // No lanzar excepción con campos faltantes
-            NewLine = NewLine.CRLF,                 // Windows compatible (Excel estándar)
+            NewLine = "\r\n",                         // Windows compatible (Excel estándar)
             Encoding = new UTF8Encoding(false),     // UTF-8 sin BOM en el contenido
-            ShouldQuoteField = ShouldQuoteFieldFunc, // Función para determinar cuándo citar campos
         };
     }
 
-    /// <summary>
-    /// Determina si un campo debe ir entrecomillado en CSV
-    /// Power BI y Excel son más laxos, pero es buena práctica citar valores complejos
-    /// </summary>
-    private static bool ShouldQuoteFieldFunc(
-        string field,
-        in WriteRecord context)
-    {
-        // Citar si contiene: coma, comilla, salto de línea
-        if (field == null) return false;
-        
-        return field.Contains(',') ||
-               field.Contains('"') ||
-               field.Contains('\n') ||
-               field.Contains('\r');
-    }
+    // ShouldQuoteField eliminado - CsvHelper v33 cita automáticamente campos con coma/comilla/salto de línea
 
     private AuditActionCode ParseActionCodeFromOperation(string operation)
     {

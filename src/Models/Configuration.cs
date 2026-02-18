@@ -142,8 +142,6 @@ public enum AuditCategory
     Maintenance
 }
 
-}
-
 /// <summary>
 /// Configuración de limpieza de datos para eliminar ruido del sistema
 /// </summary>

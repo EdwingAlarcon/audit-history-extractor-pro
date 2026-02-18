@@ -1,6 +1,8 @@
 using AuditHistoryExtractorPro.Models;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.PowerPlatform.Dataverse.Client;
 using Microsoft.Xrm.Sdk;
+using Microsoft.Xrm.Sdk.Messages;
 using Microsoft.Xrm.Sdk.Metadata;
 using Microsoft.Xrm.Sdk.Query;
 using Newtonsoft.Json;
@@ -239,7 +241,7 @@ public class MetadataResolutionService : IMetadataResolutionService
         
         if (_attributeCache.TryGetValue(cacheKey, out var cached))
         {
-            return cached.AttributeType?.Value ?? "Unknown";
+            return cached.AttributeType?.ToString() ?? "Unknown";
         }
 
         var metadata = await RetrieveAttributeMetadataAsync(
@@ -247,7 +249,7 @@ public class MetadataResolutionService : IMetadataResolutionService
             attributeLogicalName,
             cancellationToken);
 
-        return metadata?.AttributeType?.Value ?? "Unknown";
+        return metadata?.AttributeType?.ToString() ?? "Unknown";
     }
 
     public async Task PreloadEntityMetadataAsync(
