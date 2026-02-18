@@ -1,4 +1,4 @@
-namespace AuditHistoryExtractorPro.Domain.Entities;
+namespace AuditHistoryExtractorPro.Models;
 
 /// <summary>
 /// Representa un registro de auditoría extraído de Dataverse

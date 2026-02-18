@@ -1,10 +1,9 @@
-using AuditHistoryExtractorPro.Domain.Entities;
-using AuditHistoryExtractorPro.Domain.Interfaces;
+using AuditHistoryExtractorPro.Models;
 using Microsoft.Extensions.Caching.Memory;
 using Azure.Security.KeyVault.Secrets;
 using Azure.Identity;
 
-namespace AuditHistoryExtractorPro.Infrastructure.Services;
+namespace AuditHistoryExtractorPro.Services.Core;
 
 /// <summary>
 /// Servicio de caché en memoria

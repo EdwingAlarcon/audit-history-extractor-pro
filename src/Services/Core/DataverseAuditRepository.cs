@@ -1,6 +1,4 @@
-using AuditHistoryExtractorPro.Domain.Entities;
-using AuditHistoryExtractorPro.Domain.Interfaces;
-using AuditHistoryExtractorPro.Domain.ValueObjects;
+using AuditHistoryExtractorPro.Models;
 using Microsoft.PowerPlatform.Dataverse.Client;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Query;
@@ -8,7 +6,7 @@ using Polly;
 using Polly.Retry;
 using System.ServiceModel;
 
-namespace AuditHistoryExtractorPro.Infrastructure.Repositories;
+namespace AuditHistoryExtractorPro.Services.Core;
 
 /// <summary>
 /// Repositorio para operaciones de auditoría con Dataverse

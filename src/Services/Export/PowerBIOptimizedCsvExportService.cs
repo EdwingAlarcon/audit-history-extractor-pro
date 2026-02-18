@@ -1,13 +1,11 @@
-using AuditHistoryExtractorPro.Domain.Entities;
-using AuditHistoryExtractorPro.Domain.Interfaces;
-using AuditHistoryExtractorPro.Domain.ValueObjects;
+using AuditHistoryExtractorPro.Models;
 using CsvHelper;
 using CsvHelper.Configuration;
 using System.Globalization;
 using System.IO.Compression;
 using System.Text;
 
-namespace AuditHistoryExtractorPro.Infrastructure.Services.Export;
+namespace AuditHistoryExtractorPro.Services.Export;
 
 /// <summary>
 /// Servicio de exportación a CSV optimizado para Power BI

@@ -1,11 +1,11 @@
-using AuditHistoryExtractorPro.Domain.Interfaces;
+using AuditHistoryExtractorPro.Models;
 using Microsoft.PowerPlatform.Dataverse.Client;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Metadata;
 using Microsoft.Xrm.Sdk.Query;
 using Newtonsoft.Json;
 
-namespace AuditHistoryExtractorPro.Infrastructure.Services;
+namespace AuditHistoryExtractorPro.Services.Infrastructure;
 
 /// <summary>
 /// Servicio de resolución de metadatos con caché de dos niveles

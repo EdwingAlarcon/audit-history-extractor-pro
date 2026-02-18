@@ -1,7 +1,4 @@
-using AuditHistoryExtractorPro.Domain.Entities;
-using AuditHistoryExtractorPro.Domain.ValueObjects;
-
-namespace AuditHistoryExtractorPro.Domain.Interfaces;
+namespace AuditHistoryExtractorPro.Models;
 
 /// <summary>
 /// Interfaz para autenticación con Dataverse

@@ -1,4 +1,4 @@
-namespace AuditHistoryExtractorPro.Domain.ValueObjects;
+namespace AuditHistoryExtractorPro.Models;
 
 /// <summary>
 /// Representa los criterios de extracción de auditoría con optimizaciones Enterprise-Grade

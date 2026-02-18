@@ -4,7 +4,7 @@ using Polly.Retry;
 using System.ServiceModel;
 using Microsoft.Xrm.Sdk;
 
-namespace AuditHistoryExtractorPro.Infrastructure.Services;
+namespace AuditHistoryExtractorPro.Services.Resilience;
 
 /// <summary>
 /// Fábrica de políticas de resiliencia para Dataverse

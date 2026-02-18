@@ -1,7 +1,7 @@
 using AuditHistoryExtractorPro.Application.UseCases.ExtractAudit;
 using AuditHistoryExtractorPro.Application.UseCases.ExportAudit;
 using AuditHistoryExtractorPro.Application.UseCases.CompareRecords;
-using AuditHistoryExtractorPro.Domain.ValueObjects;
+using AuditHistoryExtractorPro.Models;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 using Spectre.Console;

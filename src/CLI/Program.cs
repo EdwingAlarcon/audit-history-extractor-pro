@@ -1,5 +1,5 @@
 using AuditHistoryExtractorPro.CLI.Commands;
-using AuditHistoryExtractorPro.Infrastructure.Services;
+using AuditHistoryExtractorPro.Services.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
@@ -65,22 +65,22 @@ class Program
     static void RegisterServices(IServiceCollection services)
     {
         // Interfaces del dominio
-        services.AddSingleton(typeof(Domain.Interfaces.ILogger<>), typeof(SerilogAdapter<>));
-        services.AddSingleton<Domain.Interfaces.ICacheService, MemoryCacheService>();
-        services.AddSingleton<Domain.Interfaces.IAuditProcessor, AuditProcessor>();
+        services.AddSingleton(typeof(Models.ILogger<>), typeof(SerilogAdapter<>));
+        services.AddSingleton<Models.ICacheService, MemoryCacheService>();
+        services.AddSingleton<Models.IAuditProcessor, AuditProcessor>();
 
         // Servicios de exportación
-        services.AddTransient<Infrastructure.Services.Export.ExcelExportService>();
-        services.AddTransient<Infrastructure.Services.Export.CsvExportService>();
-        services.AddTransient<Infrastructure.Services.Export.JsonExportService>();
-        services.AddTransient<Domain.Interfaces.IExportService, Infrastructure.Services.Export.CompositeExportService>();
+        services.AddTransient<Services.Core.ExcelExportService>();
+        services.AddTransient<Services.Core.CsvExportService>();
+        services.AddTransient<Services.Core.JsonExportService>();
+        services.AddTransient<Models.IExportService, Services.Core.CompositeExportService>();
     }
 }
 
 /// <summary>
 /// Adaptador de Serilog a nuestra interfaz ILogger
 /// </summary>
-public class SerilogAdapter<T> : AuditHistoryExtractorPro.Domain.Interfaces.ILogger<T>
+public class SerilogAdapter<T> : AuditHistoryExtractorPro.Models.ILogger<T>
 {
     public void LogInformation(string message, params object[] args)
     {

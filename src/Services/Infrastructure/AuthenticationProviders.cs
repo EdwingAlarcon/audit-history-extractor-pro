@@ -1,11 +1,10 @@
-using AuditHistoryExtractorPro.Domain.Interfaces;
-using AuditHistoryExtractorPro.Domain.ValueObjects;
+using AuditHistoryExtractorPro.Models;
 using Azure.Identity;
 using Microsoft.Identity.Client;
 using Microsoft.Extensions.DependencyInjection;
 using System.Security.Cryptography.X509Certificates;
 
-namespace AuditHistoryExtractorPro.Infrastructure.Authentication;
+namespace AuditHistoryExtractorPro.Services.Infrastructure;
 
 /// <summary>
 /// Proveedor de autenticación OAuth2 para Dataverse
