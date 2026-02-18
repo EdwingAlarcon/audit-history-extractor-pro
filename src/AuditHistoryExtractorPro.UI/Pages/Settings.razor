@@ -129,10 +129,10 @@
                     <button class="btn-primary" @onclick="SaveConfiguration">
                         💾 Guardar Configuración
                     </button>
-                    <button class="btn-info" @onclick="TestConnection" disabled="@_isTesting">
-                        @(_isTesting ? "⏳ Probando..." : "✓ Probar Conexión")
+                    <button class="btn-info" @onclick="TestConnection" disabled="@IsBusy">
+                        @(IsBusy ? "⏳ Probando..." : "✓ Probar Conexión")
                     </button>
-                    <button class="btn-info" @onclick="LoadMetadata" disabled="@_isLoadingMetadata || _isTesting">
+                    <button class="btn-info" @onclick="LoadMetadata" disabled="@_isLoadingMetadata || IsBusy">
                         @(_isLoadingMetadata ? "⏳ Cargando metadatos..." : "📚 Cargar Metadatos")
                     </button>
                     <button class="btn-secondary" @onclick="ShowConfigYaml">
@@ -392,7 +392,7 @@
     private int _activeTab = 0;
     private string _message = string.Empty;
     private string _messageType = "info"; // success, error, info
-    private bool _isTesting = false;
+    private bool IsBusy = false;
     private bool _isLoadingMetadata = false;
     private bool _showYaml = false;
     private string _generatedYaml = string.Empty;
@@ -483,7 +483,7 @@
             return;
         }
 
-        _isTesting = true;
+        IsBusy = true;
         _deviceCodeUserCode = string.Empty;
         _deviceCodeMessage = string.Empty;
         ShowMessage("Probando conexión con Dataverse...", "info");
@@ -493,19 +493,26 @@
         {
             SyncAuthConfigurationFromForm();
 
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            var client = await CreateServiceClientAsync(cts.Token);
-            var authProvider = BuildAuthenticationProvider();
+            var authType = await Task.Run(async () =>
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                var client = await CreateServiceClientAsync(cts.Token);
+                var authProvider = BuildAuthenticationProvider();
+                return authProvider.GetAuthenticationType();
+            });
 
-            _isTesting = false;
             ShowMessage(
-                $"✓ Conexión exitosa con Dataverse ({authProvider.GetAuthenticationType()})",
+                $"✓ Conexión exitosa con Dataverse ({authType})",
                 "success");
         }
         catch (Exception ex)
         {
-            _isTesting = false;
             ShowMessage($"❌ Error de conexión: {ex.Message}", "error");
+        }
+        finally
+        {
+            IsBusy = false;
+            await InvokeAsync(StateHasChanged);
         }
     }
 
