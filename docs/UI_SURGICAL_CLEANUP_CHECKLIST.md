@@ -71,8 +71,11 @@ Estado Fase 4 (inicio controlado):
 ## Fase 4 — Integración progresiva con lógica
 - [ ] Alinear cada vista con un caso de uso concreto de `Application`.
 - [ ] Evitar lógica de negocio en componentes Razor.
-- [ ] Mover helpers de presentación a clases dedicadas si aplica.
+- [x] Mover helpers de presentación a clases dedicadas si aplica.
 - [ ] Revalidar que CLI no se vea impactado.
+
+Estado Fase 4 (avance):
+- `History` delega filtrado, paginación y cálculo de estadísticas en `HistoryViewService`, reduciendo lógica dentro de `History.razor`.
 
 ## Fase 5 — Hardening antes de merge
 - [ ] `dotnet build AuditHistoryExtractorPro.sln`.

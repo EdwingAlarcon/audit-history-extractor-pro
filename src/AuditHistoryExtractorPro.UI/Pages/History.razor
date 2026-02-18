@@ -7,6 +7,7 @@
 @inject ILogger<History> Logger
 @inject NavigationManager Navigation
 @inject AuditSessionState SessionState
+@inject HistoryViewService HistoryViewService
 
 <PageTitle>Historial - Audit History Extractor Pro</PageTitle>
 
@@ -193,7 +194,7 @@
     private string _message = string.Empty;
     private bool _isError = false;
 
-    private AuditStats _stats = new();
+    private HistoryAuditStats _stats = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -211,7 +212,7 @@
             var records = SessionState.GetRecordsCopy();
             _allAuditRecords.Clear();
             _allAuditRecords.AddRange(records);
-            RebuildView(resetPage: true);
+            RefreshView(resetPage: true);
 
             if (!_allAuditRecords.Any())
             {
@@ -240,21 +241,12 @@
         
         try
         {
-            if (_dateFrom.HasValue && _dateTo.HasValue && _dateFrom > _dateTo)
+            RefreshView(resetPage: true);
+
+            if (_isError)
             {
-                _message = "⚠️ La fecha inicial no puede ser mayor que la fecha final.";
-                _isError = true;
                 return;
             }
-
-            if (!string.IsNullOrWhiteSpace(_recordIdFilter) && !Guid.TryParse(_recordIdFilter, out _))
-            {
-                _message = "⚠️ El filtro de ID debe ser un GUID válido.";
-                _isError = true;
-                return;
-            }
-
-            RebuildView(resetPage: true);
 
             if (!_filteredRecords.Any())
             {
@@ -283,7 +275,7 @@
         _dateTo = DateTime.Now;
         _message = string.Empty;
         _isError = false;
-        RebuildView(resetPage: true);
+        RefreshView(resetPage: true);
         await Task.CompletedTask;
     }
 
@@ -298,7 +290,7 @@
         if (_currentPage > 1)
         {
             _currentPage--;
-            UpdatePagedRecords();
+            RefreshView(resetPage: false);
         }
     }
 
@@ -307,7 +299,7 @@
         if (_currentPage < _totalPages)
         {
             _currentPage++;
-            UpdatePagedRecords();
+            RefreshView(resetPage: false);
         }
     }
 
@@ -319,91 +311,40 @@
         _ => ""
     };
 
-    private void RebuildView(bool resetPage)
+    private HistoryFilter CreateFilter()
     {
-        IEnumerable<AuditRecord> query = _allAuditRecords;
-
-        if (!string.IsNullOrWhiteSpace(_entityFilter))
+        return new HistoryFilter
         {
-            query = query.Where(r => r.EntityName.Contains(_entityFilter.Trim(), StringComparison.OrdinalIgnoreCase));
-        }
-
-        if (!string.IsNullOrWhiteSpace(_userFilter))
-        {
-            query = query.Where(r => r.UserName.Contains(_userFilter.Trim(), StringComparison.OrdinalIgnoreCase));
-        }
-
-        if (!string.IsNullOrWhiteSpace(_operationFilter))
-        {
-            query = query.Where(r => string.Equals(r.Operation, _operationFilter, StringComparison.OrdinalIgnoreCase));
-        }
-
-        if (!string.IsNullOrWhiteSpace(_recordIdFilter) && Guid.TryParse(_recordIdFilter, out var recordId))
-        {
-            query = query.Where(r => r.RecordId == recordId);
-        }
-
-        if (_dateFrom.HasValue)
-        {
-            var fromDate = _dateFrom.Value.Date;
-            query = query.Where(r => r.CreatedOn >= fromDate);
-        }
-
-        if (_dateTo.HasValue)
-        {
-            var toDateInclusive = _dateTo.Value.Date.AddDays(1).AddTicks(-1);
-            query = query.Where(r => r.CreatedOn <= toDateInclusive);
-        }
-
-        _filteredRecords = query
-            .OrderByDescending(r => r.CreatedOn)
-            .ToList();
-
-        _stats = BuildStats(_filteredRecords);
-        _totalPages = Math.Max(1, (int)Math.Ceiling(_filteredRecords.Count / (double)_pageSize));
-
-        if (resetPage)
-        {
-            _currentPage = 1;
-        }
-        else if (_currentPage > _totalPages)
-        {
-            _currentPage = _totalPages;
-        }
-
-        UpdatePagedRecords();
-    }
-
-    private void UpdatePagedRecords()
-    {
-        var skip = (_currentPage - 1) * _pageSize;
-        _pagedRecords = _filteredRecords
-            .Skip(skip)
-            .Take(_pageSize)
-            .ToList();
-    }
-
-    private static AuditStats BuildStats(List<AuditRecord> records)
-    {
-        return new AuditStats
-        {
-            TotalCreates = records.Count(r => string.Equals(r.Operation, "Create", StringComparison.OrdinalIgnoreCase)),
-            TotalUpdates = records.Count(r => string.Equals(r.Operation, "Update", StringComparison.OrdinalIgnoreCase)),
-            TotalDeletes = records.Count(r => string.Equals(r.Operation, "Delete", StringComparison.OrdinalIgnoreCase)),
-            UniqueEntities = records
-                .Select(r => r.EntityName)
-                .Where(e => !string.IsNullOrWhiteSpace(e))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Count()
+            Entity = _entityFilter,
+            RecordId = _recordIdFilter,
+            User = _userFilter,
+            Operation = _operationFilter,
+            DateFrom = _dateFrom,
+            DateTo = _dateTo
         };
     }
 
-    private class AuditStats
+    private void RefreshView(bool resetPage)
     {
-        public int TotalCreates { get; set; }
-        public int TotalUpdates { get; set; }
-        public int TotalDeletes { get; set; }
-        public int UniqueEntities { get; set; }
+        var requestedPage = resetPage ? 1 : _currentPage;
+        var result = HistoryViewService.BuildView(
+            _allAuditRecords,
+            CreateFilter(),
+            requestedPage,
+            _pageSize);
+
+        if (!string.IsNullOrWhiteSpace(result.ValidationError))
+        {
+            _isError = true;
+            _message = result.ValidationError;
+            return;
+        }
+
+        _filteredRecords = result.FilteredRecords;
+        _pagedRecords = result.PagedRecords;
+        _stats = result.Stats;
+        _currentPage = result.CurrentPage;
+        _totalPages = result.TotalPages;
     }
 }
 
