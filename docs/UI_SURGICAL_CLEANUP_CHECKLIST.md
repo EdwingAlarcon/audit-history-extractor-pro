@@ -42,7 +42,7 @@ Estado Fase 2:
 
 ## Fase 3 — Corrección de eventos y estados de UI
 - [x] Revisar `Pages/Extract.razor` (validaciones y estados de carga).
-- [ ] Revisar `Pages/Export.razor` (habilitado/deshabilitado según datos).
+- [x] Revisar `Pages/Export.razor` (habilitado/deshabilitado según datos).
 - [ ] Revisar `Pages/History.razor` (render y paginación).
 - [ ] Mantener contratos de servicios sin cambios en esta fase.
 
@@ -54,6 +54,11 @@ Estado Fase 3 (avance actual):
 	- progreso real con `IProgress<ExtractionProgress>`,
 	- cancelación por usuario con `CancellationTokenSource`.
 - Build y smoke test de rutas (`/`, `/extract`, `/export`) validados con `200`.
+- `Pages/Export.razor` robustecido con:
+	- controles deshabilitados durante exportación,
+	- guardas cuando no hay registros para exportar,
+	- validación de nombre de archivo,
+	- feedback informativo sin invocar exportación inválida.
 
 ## Fase 4 — Integración progresiva con lógica
 - [ ] Alinear cada vista con un caso de uso concreto de `Application`.

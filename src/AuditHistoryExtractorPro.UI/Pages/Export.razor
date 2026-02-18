@@ -19,7 +19,8 @@
             <label>Formato de Exportación:</label>
             <div class="format-selector">
                 <button class="format-button @(_format == "Excel" ? "active" : "")" 
-                        @onclick="@(() => _format = "Excel")">
+                        @onclick="@(() => _format = "Excel")"
+                        disabled="@_isExporting">
                     <div class="format-icon" style="background: #107C10;">📊</div>
                     <div>
                         <strong>Excel</strong>
@@ -28,7 +29,8 @@
                 </button>
                 
                 <button class="format-button @(_format == "CSV" ? "active" : "")" 
-                        @onclick="@(() => _format = "CSV")">
+                        @onclick="@(() => _format = "CSV")"
+                        disabled="@_isExporting">
                     <div class="format-icon" style="background: #0078D4;">📄</div>
                     <div>
                         <strong>CSV</strong>
@@ -37,7 +39,8 @@
                 </button>
                 
                 <button class="format-button @(_format == "JSON" ? "active" : "")" 
-                        @onclick="@(() => _format = "JSON")">
+                        @onclick="@(() => _format = "JSON")"
+                        disabled="@_isExporting">
                     <div class="format-icon" style="background: #5C2D91;">{ }</div>
                     <div>
                         <strong>JSON</strong>
@@ -49,12 +52,12 @@
 
         <div class="form-group">
             <label>Nombre del archivo:</label>
-            <input type="text" @bind="_fileName" placeholder="AuditHistory_Export" class="form-input" />
+            <input type="text" @bind="_fileName" placeholder="AuditHistory_Export" class="form-input" disabled="@_isExporting" />
         </div>
 
         <div class="form-group">
             <label>Ruta de destino:</label>
-            <input type="text" @bind="_outputPath" placeholder="C:\Exports" class="form-input" />
+            <input type="text" @bind="_outputPath" placeholder="C:\Exports" class="form-input" disabled="@_isExporting" />
             <small style="color: #605E5C;">Se creará si no existe. Dejar en blanco para usar carpeta por defecto.</small>
         </div>
 
@@ -62,19 +65,26 @@
             <label>Opciones de exportación:</label>
             <div class="checkbox-group">
                 <label class="checkbox-label">
-                    <input type="checkbox" @bind="_includeHeaders" />
+                    <input type="checkbox" @bind="_includeHeaders" disabled="@_isExporting" />
                     <span>Incluir encabezados</span>
                 </label>
                 <label class="checkbox-label">
-                    <input type="checkbox" @bind="_includeMetadata" />
+                    <input type="checkbox" @bind="_includeMetadata" disabled="@_isExporting" />
                     <span>Incluir metadatos</span>
                 </label>
                 <label class="checkbox-label">
-                    <input type="checkbox" @bind="_compressFile" />
+                    <input type="checkbox" @bind="_compressFile" disabled="@_isExporting" />
                     <span>Comprimir archivo (.zip)</span>
                 </label>
             </div>
         </div>
+
+        @if (_totalRecords <= 0)
+        {
+            <div class="message-info">
+                ⚠️ No hay registros listos para exportar. Ejecuta una extracción primero.
+            </div>
+        }
 
         @if (_isExporting)
         {
@@ -118,7 +128,7 @@
         </div>
 
         <div class="button-group">
-            <button class="btn-primary" @onclick="StartExport" disabled="@_isExporting">
+            <button class="btn-primary" @onclick="StartExport" disabled="@(!_canExport)">
                 @(_isExporting ? "⏳ Exportando..." : "🚀 Exportar Datos")
             </button>
             <button class="btn-secondary" @onclick="@(() => Navigation.NavigateTo("/"))">
@@ -147,6 +157,7 @@
     
     private int _totalRecords = 0; // Se obtiene de la extracción previa
     private int _exportCount = 0;
+    private bool _canExport => !_isExporting && _totalRecords > 0 && !string.IsNullOrWhiteSpace(_fileName);
 
     protected override async Task OnInitializedAsync()
     {
@@ -172,6 +183,23 @@
                 return;
             }
 
+            if (_totalRecords <= 0)
+            {
+                _message = "⚠️ No hay registros para exportar. Realiza una extracción primero.";
+                _isError = true;
+                _isExporting = false;
+                return;
+            }
+
+            var normalizedFileName = _fileName.Trim();
+            if (normalizedFileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            {
+                _message = "⚠️ El nombre del archivo contiene caracteres inválidos.";
+                _isError = true;
+                _isExporting = false;
+                return;
+            }
+
             // Crear configuración de exportación
             var config = new ExportConfiguration
             {
@@ -184,14 +212,14 @@
                 },
                 OutputPath = string.IsNullOrWhiteSpace(_outputPath) ? 
                     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "AuditExports") : 
-                    _outputPath,
-                FileName = _fileName,
+                    _outputPath.Trim(),
+                FileName = normalizedFileName,
                 CompressOutput = _compressFile,
                 IncludeTimestamp = true
             };
 
             // TODO: Obtener los registros reales de la extracción previa
-            var records = new List<AuditRecord>();
+            var records = new List<AuditRecord>(_totalRecords);
 
             var command = new ExportAuditCommand
             {
@@ -391,6 +419,15 @@
         padding: 20px;
         border-radius: 4px;
         color: #A80000;
+        margin: 20px 0;
+    }
+
+    .message-info {
+        background: #FFF4CE;
+        border-left: 4px solid #FFB900;
+        padding: 15px;
+        border-radius: 4px;
+        color: #8A6D1D;
         margin: 20px 0;
     }
 
