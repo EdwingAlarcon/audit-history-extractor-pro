@@ -13,6 +13,7 @@ cd /d "%~dp0"
 
 REM Ruta del proyecto UI (.csproj)
 set "PROJECT_PATH=src\AuditHistoryExtractorPro.UI\AuditHistoryExtractorPro.UI.csproj"
+set "LAUNCH_PROFILE=https"
 
 REM Validar que dotnet esté disponible
 where dotnet >nul 2>&1
@@ -40,11 +41,12 @@ if not exist "%PROJECT_PATH%" (
 echo.
 echo [INFO] Iniciando Audit History Extractor Pro...
 echo [INFO] Proyecto: %PROJECT_PATH%
+echo [INFO] Perfil de inicio: %LAUNCH_PROFILE%
 echo.
 
 REM Ejecutar aplicación
 
-dotnet run --project "%PROJECT_PATH%"
+dotnet run --project "%PROJECT_PATH%" --launch-profile %LAUNCH_PROFILE%
 set "APP_EXIT_CODE=%ERRORLEVEL%"
 
 echo.
