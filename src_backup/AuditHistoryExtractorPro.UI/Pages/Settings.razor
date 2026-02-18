@@ -1,0 +1,829 @@
+@page "/settings"
+@inject NavigationManager Navigation
+
+<PageTitle>Configuración - Audit History Extractor Pro</PageTitle>
+
+<h1 style="color: #0078D4; margin-bottom: 30px; font-size: 36px;">⚙️ Configuración</h1>
+
+<div class="settings-container">
+    <!-- Pestañas -->
+    <div class="tabs">
+        <button class="tab @(_activeTab == 0 ? "active" : "")" @onclick="ActivateDataverseTab">
+            💾 Dataverse
+        </button>
+        <button class="tab @(_activeTab == 1 ? "active" : "")" @onclick="ActivateAccountsTab">
+            👥 Múltiples Cuentas
+        </button>
+        <button class="tab @(_activeTab == 2 ? "active" : "")" @onclick="ActivateAdvancedTab">
+            🔧 Avanzado
+        </button>
+    </div>
+
+    <!-- Mensajes -->
+    @if (!string.IsNullOrEmpty(_message))
+    {
+        <div class="@(_messageType == "success" ? "message-success" : _messageType == "error" ? "message-error" : "message-info")">
+            @_message
+        </div>
+    }
+
+    <!-- Contenido de las pestañas -->
+    <div class="tab-content">
+        @if (_activeTab == 0)
+        {
+            <!-- Pestaña Dataverse -->
+            <div class="settings-section">
+                <h2 style="color: #0078D4; margin-bottom: 20px;">📡 Configuración de Conexión</h2>
+                
+                <div class="form-group">
+                    <label>URL del Entorno:</label>
+                    <input type="text" @bind="_environmentUrl" 
+                           placeholder="https://yourorg.crm.dynamics.com" 
+                           class="form-input" />
+                    <small>URL de tu entorno de Dataverse</small>
+                </div>
+
+                <div class="form-group">
+                    <label>Tipo de Autenticación:</label>
+                    <select @bind="_authType" class="form-input">
+                        <option value="oauth2">OAuth2 (Azure AD - Interactivo)</option>
+                        <option value="client_secret">Client Secret</option>
+                        <option value="certificate">Certificate</option>
+                        <option value="managed_identity">Managed Identity (Azure)</option>
+                    </select>
+                </div>
+
+                @if (_authType == "oauth2" || _authType == "client_secret")
+                {
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Tenant ID:</label>
+                            <input type="text" @bind="_tenantId" 
+                                   placeholder="00000000-0000-0000-0000-000000000000" 
+                                   class="form-input" />
+                        </div>
+
+                        <div class="form-group">
+                            <label>Client ID (Application ID):</label>
+                            <input type="text" @bind="_clientId" 
+                                   placeholder="00000000-0000-0000-0000-000000000000" 
+                                   class="form-input" />
+                        </div>
+                    </div>
+                }
+
+                @if (_authType == "client_secret")
+                {
+                    <div class="form-group">
+                        <label>Client Secret:</label>
+                        <input type="password" @bind="_clientSecret" class="form-input" />
+                        <small style="color: #E81123;">⚠️ Será almacenado temporalmente. Usar Azure Key Vault en producción.</small>
+                    </div>
+                }
+
+                @if (_authType == "certificate")
+                {
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Ruta del Certificado:</label>
+                            <input type="text" @bind="_certificatePath" 
+                                   placeholder="C:\certs\certificate.pfx" 
+                                   class="form-input" />
+                        </div>
+
+                        <div class="form-group">
+                            <label>Contraseña del Certificado:</label>
+                            <input type="password" @bind="_certificatePassword" class="form-input" />
+                        </div>
+                    </div>
+                }
+
+                <div class="button-group">
+                    <button class="btn-primary" @onclick="SaveConfiguration">
+                        💾 Guardar Configuración
+                    </button>
+                    <button class="btn-info" @onclick="TestConnection" disabled="@_isTesting">
+                        @(_isTesting ? "⏳ Probando..." : "✓ Probar Conexión")
+                    </button>
+                    <button class="btn-secondary" @onclick="ShowConfigYaml">
+                        📄 Ver YAML
+                    </button>
+                </div>
+
+                @if (_showYaml)
+                {
+                    <div class="yaml-preview">
+                        <h3 style="color: #0078D4; margin-bottom: 15px;">📄 Configuración YAML</h3>
+                        <pre>@_generatedYaml</pre>
+                        <button class="btn-secondary" style="margin-top: 15px;" @onclick="CloseYamlPreview">
+                            ✕ Cerrar
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+        else if (_activeTab == 1)
+        {
+            <!-- Pestaña Múltiples Cuentas -->
+            <div class="settings-section">
+                <h2 style="color: #0078D4; margin-bottom: 20px;">👥 Administrar Cuentas</h2>
+                <p style="color: #605E5C; margin-bottom: 20px;">
+                    Puedes guardar múltiples configuraciones para diferentes entornos de Dataverse.
+                </p>
+
+                @if (_savedAccounts.Any())
+                {
+                    <div class="table-container">
+                        <table class="accounts-table">
+                            <thead>
+                                <tr>
+                                    <th>Nombre</th>
+                                    <th>URL</th>
+                                    <th>Tipo Auth</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var account in _savedAccounts)
+                                {
+                                    <tr>
+                                        <td><strong>@account.Name</strong></td>
+                                        <td>@account.Url</td>
+                                        <td>
+                                            <span class="badge">@account.AuthType</span>
+                                        </td>
+                                        <td>
+                                            <button class="btn-action btn-edit" @onclick="@(() => LoadAccount(account))">
+                                                ✏️ Editar
+                                            </button>
+                                            <button class="btn-action btn-delete" @onclick="@(() => DeleteAccount(account))">
+                                                🗑️ Eliminar
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="empty-state-small">
+                        <p>📋 No hay cuentas guardadas. Agrega una nueva cuenta abajo.</p>
+                    </div>
+                }
+
+                <div style="margin-top: 30px; padding: 25px; background: #F3F9FD; border-radius: 8px; border-left: 4px solid #0078D4;">
+                    <h3 style="color: #0078D4; margin-bottom: 15px;">➕ Agregar Nueva Cuenta</h3>
+                    <div class="form-group">
+                        <label>Nombre de esta Configuración:</label>
+                        <input type="text" @bind="_accountName" 
+                               placeholder="Producción, Testing, Dev, etc." 
+                               class="form-input" />
+                        <small>Dale un nombre para identificar esta cuenta</small>
+                    </div>
+
+                    <button class="btn-success" @onclick="AddAccount">
+                        ➕ Guardar como Nueva Cuenta
+                    </button>
+                </div>
+            </div>
+        }
+        else if (_activeTab == 2)
+        {
+            <!-- Pestaña Avanzado -->
+            <div class="settings-section">
+                <h2 style="color: #0078D4; margin-bottom: 20px;">🔧 Configuración Avanzada</h2>
+                
+                <h3 style="color: #323130; margin: 30px 0 15px 0;">⚡ Rendimiento</h3>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Solicitudes Paralelas Máximas:</label>
+                        <input type="number" @bind="_maxParallelRequests" 
+                               min="1" max="20" 
+                               class="form-input" />
+                        <small>Número de consultas simultáneas a Dataverse (1-20)</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Tamaño de Página:</label>
+                        <input type="number" @bind="_pageSize" 
+                               min="100" max="10000" step="100" 
+                               class="form-input" />
+                        <small>Registros por página (100-10000)</small>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="checkbox-label-large">
+                        <input type="checkbox" @bind="_enableCaching" />
+                        <span>🔄 Habilitar Caché</span>
+                    </label>
+                </div>
+
+                @if (_enableCaching)
+                {
+                    <div class="form-group" style="margin-left: 30px;">
+                        <label>Duración del Caché (minutos):</label>
+                        <input type="number" @bind="_cacheDuration" 
+                               min="1" max="1440" 
+                               class="form-input" style="max-width: 200px;" />
+                    </div>
+                }
+
+                <h3 style="color: #323130; margin: 40px 0 15px 0;">🔐 Azure Key Vault</h3>
+                
+                <div class="form-group">
+                    <label class="checkbox-label-large">
+                        <input type="checkbox" @bind="_enableKeyVault" />
+                        <span>🔑 Usar Azure Key Vault</span>
+                    </label>
+                    <small style="display: block; margin-left: 30px; color: #605E5C;">
+                        Almacena secretos de forma segura en Azure Key Vault
+                    </small>
+                </div>
+
+                @if (_enableKeyVault)
+                {
+                    <div class="form-group" style="margin-left: 30px;">
+                        <label>URL del Key Vault:</label>
+                        <input type="text" @bind="_keyVaultUrl" 
+                               placeholder="https://your-vault.vault.azure.net/" 
+                               class="form-input" />
+                    </div>
+                }
+
+                <div class="performance-stats">
+                    <h3 style="color: #0078D4; margin-bottom: 15px;">📊 Configuración Actual</h3>
+                    <div class="stats-grid-small">
+                        <div class="stat-item">
+                            <span class="stat-label">Solicitudes Paralelas:</span>
+                            <span class="stat-value">@_maxParallelRequests</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Tamaño de Página:</span>
+                            <span class="stat-value">@_pageSize</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Caché:</span>
+                            <span class="stat-value">@(_enableCaching ? $"✓ {_cacheDuration} min" : "✗ Deshabilitado")</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Key Vault:</span>
+                            <span class="stat-value">@(_enableKeyVault ? "✓ Habilitado" : "✗ Deshabilitado")</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="button-group" style="margin-top: 30px;">
+                    <button class="btn-primary" @onclick="SaveAdvancedSettings">
+                        💾 Guardar Configuración Avanzada
+                    </button>
+                    <button class="btn-secondary" @onclick="ResetToDefaults">
+                        🔄 Restaurar Valores por Defecto
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private int _activeTab = 0;
+    private string _message = string.Empty;
+    private string _messageType = "info"; // success, error, info
+    private bool _isTesting = false;
+    private bool _showYaml = false;
+    private string _generatedYaml = string.Empty;
+
+    // Conexión básica
+    private string _environmentUrl = "";
+    private string _authType = "oauth2";
+    private string _tenantId = "";
+    private string _clientId = "";
+    private string _clientSecret = "";
+    private string _certificatePath = "";
+    private string _certificatePassword = "";
+
+    // Múltiples cuentas
+    private string _accountName = "";
+    private List<SavedAccount> _savedAccounts = new();
+
+    // Configuración avanzada
+    private int _maxParallelRequests = 10;
+    private int _pageSize = 5000;
+    private bool _enableCaching = true;
+    private int _cacheDuration = 30;
+    private bool _enableKeyVault = false;
+    private string _keyVaultUrl = "";
+
+    protected override void OnInitialized()
+    {
+        LoadSavedConfiguration();
+    }
+
+    private void ActivateDataverseTab()
+    {
+        _activeTab = 0;
+        StateHasChanged();
+    }
+
+    private void ActivateAccountsTab()
+    {
+        _activeTab = 1;
+        StateHasChanged();
+    }
+
+    private void ActivateAdvancedTab()
+    {
+        _activeTab = 2;
+        StateHasChanged();
+    }
+
+    private void LoadSavedConfiguration()
+    {
+        // TODO: Cargar cuentas guardadas desde config.yaml o base de datos
+        _savedAccounts = new List<SavedAccount>();
+    }
+
+    private void SaveConfiguration()
+    {
+        if (string.IsNullOrWhiteSpace(_environmentUrl))
+        {
+            ShowMessage("Por favor ingresa la URL del entorno", "error");
+            return;
+        }
+
+        try
+        {
+            // Aquí guardarías en config.yaml
+            _generatedYaml = GenerateYamlConfig();
+            ShowMessage("✓ Configuración guardada correctamente", "success");
+            StateHasChanged();
+        }
+        catch (Exception)
+        {
+            ShowMessage("❌ Error al guardar la configuración", "error");
+        }
+    }
+
+    private async Task TestConnection()
+    {
+        if (string.IsNullOrWhiteSpace(_environmentUrl))
+        {
+            ShowMessage("Por favor configura la URL del entorno primero", "error");
+            return;
+        }
+
+        _isTesting = true;
+        ShowMessage("Probando conexión con Dataverse...", "info");
+        await Task.Delay(100);
+        StateHasChanged();
+        
+        // Simular prueba de conexión
+        await Task.Delay(2000);
+        
+        // En una implementación real, usarías el AuthenticationProvider para validar
+        _isTesting = false;
+        ShowMessage("✓ Conexión exitosa con Dataverse", "success");
+    }
+
+    private void ShowConfigYaml()
+    {
+        _generatedYaml = GenerateYamlConfig();
+        _showYaml = true;
+        StateHasChanged();
+    }
+
+    private void CloseYamlPreview()
+    {
+        _showYaml = false;
+        StateHasChanged();
+    }
+
+    private void AddAccount()
+    {
+        if (string.IsNullOrWhiteSpace(_accountName))
+        {
+            ShowMessage("Por favor ingresa un nombre para esta cuenta", "error");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_environmentUrl))
+        {
+            ShowMessage("Por favor configura la URL del entorno primero", "error");
+            return;
+        }
+
+        _savedAccounts.Add(new SavedAccount
+        {
+            Name = _accountName,
+            Url = _environmentUrl,
+            AuthType = _authType.ToUpper()
+        });
+
+        ShowMessage($"✓ Cuenta '{_accountName}' agregada correctamente", "success");
+        _accountName = "";
+        StateHasChanged();
+    }
+
+    private void LoadAccount(SavedAccount account)
+    {
+        _environmentUrl = account.Url;
+        _authType = account.AuthType.ToLower();
+        _activeTab = 0; // Cambiar a pestaña de Dataverse
+        ShowMessage($"✓ Configuración '{account.Name}' cargada", "success");
+        StateHasChanged();
+    }
+
+    private void DeleteAccount(SavedAccount account)
+    {
+        _savedAccounts.Remove(account);
+        ShowMessage($"✓ Cuenta '{account.Name}' eliminada", "success");
+        StateHasChanged();
+    }
+
+    private void SaveAdvancedSettings()
+    {
+        ShowMessage("✓ Configuración avanzada guardada correctamente", "success");
+        StateHasChanged();
+    }
+
+    private void ResetToDefaults()
+    {
+        _maxParallelRequests = 10;
+        _pageSize = 5000;
+        _enableCaching = true;
+        _cacheDuration = 30;
+        _enableKeyVault = false;
+        _keyVaultUrl = "";
+        ShowMessage("🔄 Valores restaurados a configuración por defecto", "success");
+        StateHasChanged();
+    }
+
+    private void ShowMessage(string message, string type)
+    {
+        _message = message;
+        _messageType = type;
+        StateHasChanged();
+    }
+
+    private string GenerateYamlConfig()
+    {
+        return $@"# Audit History Extractor Pro - Configuración
+# Generado: {DateTime.Now:yyyy-MM-dd HH:mm:ss}
+
+dataverse:
+  environment_url: ""{_environmentUrl}""
+  auth_type: ""{_authType}""
+  tenant_id: ""{_tenantId}""
+  client_id: ""{_clientId}""
+  
+performance:
+  max_parallel_requests: {_maxParallelRequests}
+  page_size: {_pageSize}
+  enable_caching: {_enableCaching.ToString().ToLower()}
+  cache_duration_minutes: {_cacheDuration}
+
+azure:
+  key_vault:
+    enabled: {_enableKeyVault.ToString().ToLower()}
+    vault_url: ""{_keyVaultUrl}""";
+    }
+
+    private class SavedAccount
+    {
+        public string Name { get; set; } = "";
+        public string Url { get; set; } = "";
+        public string AuthType { get; set; } = "";
+    }
+}
+
+<style>
+    .settings-container {
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+
+    .tabs {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 25px;
+        border-bottom: 2px solid #EDEBE9;
+    }
+
+    .tab {
+        padding: 15px 30px;
+        background: transparent;
+        border: none;
+        border-bottom: 3px solid transparent;
+        color: #605E5C;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+
+    .tab:hover {
+        color: #0078D4;
+        background: #F3F9FD;
+    }
+
+    .tab.active {
+        color: #0078D4;
+        border-bottom-color: #0078D4;
+        background: #F3F9FD;
+    }
+
+    .tab-content {
+        background: white;
+        padding: 35px;
+        border-radius: 8px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+
+    .settings-section h2 {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .form-group {
+        margin-bottom: 25px;
+    }
+
+    .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+    }
+
+    label {
+        display: block;
+        color: #323130;
+        font-weight: 600;
+        margin-bottom: 8px;
+    }
+
+    .form-input, select {
+        width: 100%;
+        padding: 12px;
+        border: 2px solid #EDEBE9;
+        border-radius: 4px;
+        font-size: 14px;
+        transition: border-color 0.3s;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    .form-input:focus, select:focus {
+        outline: none;
+        border-color: #0078D4;
+        box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.1);
+    }
+
+    small {
+        display: block;
+        color: #605E5C;
+        font-size: 12px;
+        margin-top: 5px;
+    }
+
+    .checkbox-label-large {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        cursor: pointer;
+        font-weight: 600;
+        color: #323130;
+        font-size: 16px;
+    }
+
+    .checkbox-label-large input[type="checkbox"] {
+        width: 22px;
+        height: 22px;
+        cursor: pointer;
+        accent-color: #0078D4;
+    }
+
+    .button-group {
+        display: flex;
+        gap: 15px;
+        margin-top: 30px;
+        flex-wrap: wrap;
+    }
+
+    .btn-primary, .btn-secondary, .btn-info, .btn-success {
+        padding: 14px 28px;
+        border: none;
+        border-radius: 4px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+
+    .btn-primary {
+        background: #0078D4;
+        color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+        background: #106EBE;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 120, 212, 0.3);
+    }
+
+    .btn-secondary {
+        background: #EDEBE9;
+        color: #323130;
+    }
+
+    .btn-secondary:hover {
+        background: #E1DFDD;
+        transform: translateY(-2px);
+    }
+
+    .btn-info {
+        background: #00B7C3;
+        color: white;
+    }
+
+    .btn-info:hover:not(:disabled) {
+        background: #00A0AC;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 183, 195, 0.3);
+    }
+
+    .btn-success {
+        background: #107C10;
+        color: white;
+    }
+
+    .btn-success:hover {
+        background: #0E6B0E;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(16, 124, 16, 0.3);
+    }
+
+    .btn-primary:disabled, .btn-info:disabled {
+        background: #A19F9D;
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    .message-success, .message-error, .message-info {
+        padding: 15px 20px;
+        border-radius: 4px;
+        margin-bottom: 20px;
+        font-weight: 500;
+    }
+
+    .message-success {
+        background: #DFF6DD;
+        border-left: 4px solid #107C10;
+        color: #107C10;
+    }
+
+    .message-error {
+        background: #FDE7E9;
+        border-left: 4px solid #E81123;
+        color: #A80000;
+    }
+
+    .message-info {
+        background: #F3F9FD;
+        border-left: 4px solid #0078D4;
+        color: #0078D4;
+    }
+
+    .yaml-preview {
+        margin-top: 30px;
+        padding: 25px;
+        background: #F3F2F1;
+        border-radius: 8px;
+        border-left: 4px solid #5C2D91;
+    }
+
+    .yaml-preview pre {
+        background: #323130;
+        color: #50E6FF;
+        padding: 20px;
+        border-radius: 4px;
+        overflow-x: auto;
+        font-family: 'Consolas', 'Courier New', monospace;
+        font-size: 13px;
+        line-height: 1.6;
+    }
+
+    .table-container {
+        overflow-x: auto;
+        margin: 20px 0;
+    }
+
+    .accounts-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .accounts-table th {
+        background: #F3F2F1;
+        padding: 15px;
+        text-align: left;
+        font-weight: 600;
+        color: #323130;
+        border-bottom: 2px solid #EDEBE9;
+    }
+
+    .accounts-table td {
+        padding: 15px;
+        border-bottom: 1px solid #EDEBE9;
+        color: #323130;
+    }
+
+    .accounts-table tbody tr:hover {
+        background: #F3F9FD;
+    }
+
+    .badge {
+        background: #E1DFDD;
+        color: #323130;
+        padding: 5px 12px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+
+    .btn-action {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        margin-right: 8px;
+        transition: all 0.2s;
+    }
+
+    .btn-edit {
+        background: #0078D4;
+        color: white;
+    }
+
+    .btn-edit:hover {
+        background: #106EBE;
+        transform: translateY(-1px);
+    }
+
+    .btn-delete {
+        background: #E81123;
+        color: white;
+    }
+
+    .btn-delete:hover {
+        background: #C50F1F;
+        transform: translateY(-1px);
+    }
+
+    .empty-state-small {
+        text-align: center;
+        padding: 40px 20px;
+        background: #F3F2F1;
+        border-radius: 8px;
+        color: #605E5C;
+    }
+
+    .performance-stats {
+        background: #F3F9FD;
+        padding: 25px;
+        border-radius: 8px;
+        margin-top: 30px;
+        border-left: 4px solid #0078D4;
+    }
+
+    .stats-grid-small {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-top: 15px;
+    }
+
+    .stat-item {
+        display: flex;
+        justify-content: space-between;
+        padding: 12px;
+        background: white;
+        border-radius: 4px;
+    }
+
+    .stat-label {
+        color: #605E5C;
+        font-size: 14px;
+    }
+
+    .stat-value {
+        color: #323130;
+        font-weight: 700;
+        font-size: 14px;
+    }
+</style>

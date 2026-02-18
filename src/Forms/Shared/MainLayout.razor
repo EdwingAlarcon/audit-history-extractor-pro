@@ -1,0 +1,104 @@
+@inherits LayoutComponentBase
+
+<MudThemeProvider Theme="_theme" />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="4" Style="background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" 
+                       Color="Color.Inherit" 
+                       Edge="Edge.Start" 
+                       Size="Size.Large"
+                       OnClick="@((e) => DrawerToggle())" />
+        <MudIcon Icon="@Icons.Material.Filled.Analytics" Size="Size.Large" Class="mr-2" />
+        <MudText Typo="Typo.h5" Style="font-weight: 700;">Audit History Extractor Pro</MudText>
+        <MudSpacer />
+        <MudIconButton Icon="@Icons.Material.Filled.Notifications" Color="Color.Inherit" />
+        <MudIconButton Icon="@Icons.Material.Filled.AccountCircle" Color="Color.Inherit" />
+    </MudAppBar>
+    
+    @if (_drawerOpen)
+    {
+        <MudPaper Elevation="4" Style="position: fixed; left: 0; top: 64px; width: 240px; height: calc(100% - 64px); z-index: 1200; background-color: #fafafa; overflow-y: auto;">
+            <MudPaper Elevation="0" Class="pa-4" Style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                <MudStack Spacing="1" AlignItems="AlignItems.Center">
+                    <MudIcon Icon="@Icons.Material.Filled.Analytics" Size="Size.Large" />
+                    <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">Menu</MudText>
+                </MudStack>
+            </MudPaper>
+            <MudNavMenu Class="pa-2">
+                <MudNavLink Href="/" 
+                            Match="NavLinkMatch.All" 
+                            Icon="@Icons.Material.Filled.Dashboard"
+                            Style="border-radius: 8px; margin-bottom: 4px; font-weight: 500;">
+                    Dashboard
+                </MudNavLink>
+                <MudNavLink Href="/extract" 
+                            Icon="@Icons.Material.Filled.DataObject"
+                            Style="border-radius: 8px; margin-bottom: 4px; font-weight: 500;">
+                    Extraer Auditoría
+                </MudNavLink>
+                <MudNavLink Href="/export" 
+                            Icon="@Icons.Material.Filled.FileDownload"
+                            Style="border-radius: 8px; margin-bottom: 4px; font-weight: 500;">
+                    Exportar
+                </MudNavLink>
+                <MudNavLink Href="/history" 
+                            Icon="@Icons.Material.Filled.History"
+                            Style="border-radius: 8px; margin-bottom: 4px; font-weight: 500;">
+                    Historial
+                </MudNavLink>
+                <MudDivider Class="my-4" />
+                <MudNavLink Href="/settings" 
+                            Icon="@Icons.Material.Filled.Settings"
+                            Style="border-radius: 8px; margin-bottom: 4px; font-weight: 500;">
+                    Configuración
+                </MudNavLink>
+            </MudNavMenu>
+            <MudSpacer />
+            <MudPaper Elevation="0" Class="pa-4 ma-2" Style="background-color: #e3f2fd; border-radius: 8px;">
+                <MudStack Spacing="1">
+                    <MudText Typo="Typo.caption" Style="font-weight: 600;">Versión 1.0.0</MudText>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">© 2026 Audit Pro</MudText>
+                </MudStack>
+            </MudPaper>
+        </MudPaper>
+    }
+    
+    <MudMainContent Style="@(_drawerOpen ? "margin-left: 240px; background-color: #f5f7fa; transition: margin-left 0.3s;" : "background-color: #f5f7fa; transition: margin-left 0.3s;")">
+        <MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-6 pb-8">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+@code {
+    private bool _drawerOpen = true;
+
+    private MudTheme _theme = new MudTheme()
+    {
+        Palette = new PaletteLight()
+        {
+            Primary = "#667eea",
+            Secondary = "#f093fb",
+            Info = "#4facfe",
+            Success = "#00d4aa",
+            Warning = "#ffd93d",
+            Error = "#f5576c",
+            AppbarBackground = "#667eea",
+        },
+        Typography = new Typography()
+        {
+            Default = new Default()
+            {
+                FontFamily = new[] { "Inter", "Roboto", "Helvetica", "Arial", "sans-serif" }
+            }
+        }
+    };
+
+    void DrawerToggle()
+    {
+        _drawerOpen = !_drawerOpen;
+    }
+}
