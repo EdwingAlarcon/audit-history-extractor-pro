@@ -31,10 +31,14 @@ Estado Fase 1:
 - Arranque UI validado en smoke test (`/` => 200) sin depender de variables de entorno manuales.
 
 ## Fase 2 — Limpieza visual mínima (sin cambiar lógica)
-- [ ] Revisar estilos duplicados en `src/AuditHistoryExtractorPro.UI/wwwroot/css/app.css`.
-- [ ] Eliminar solo CSS muerto/no referenciado.
-- [ ] Validar layout en `MainLayout` y `SimpleLayout`.
-- [ ] Verificar navegación entre páginas sin errores.
+- [x] Revisar estilos duplicados en `src/AuditHistoryExtractorPro.UI/wwwroot/css/app.css`.
+- [x] Eliminar solo CSS muerto/no referenciado.
+- [x] Validar layout en `MainLayout` y `SimpleLayout`.
+- [x] Verificar navegación entre páginas sin errores.
+
+Estado Fase 2:
+- Limpieza aplicada en `Shared/MainLayout.razor` eliminando repetición de estilos inline (sin cambios de lógica).
+- Build de solución exitoso y smoke test de rutas UI (`/`, `/extract`, `/export`, `/history`, `/settings`) con `200`.
 
 ## Fase 3 — Corrección de eventos y estados de UI
 - [ ] Revisar `Pages/Extract.razor` (validaciones y estados de carga).

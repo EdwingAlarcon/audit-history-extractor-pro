@@ -5,7 +5,7 @@
 <MudSnackbarProvider />
 
 <MudLayout>
-    <MudAppBar Elevation="4" Style="background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);">
+    <MudAppBar Elevation="4" Style="@AppBarStyle">
         <MudIconButton Icon="@Icons.Material.Filled.Menu" 
                        Color="Color.Inherit" 
                        Edge="Edge.Start" 
@@ -20,8 +20,8 @@
     
     @if (_drawerOpen)
     {
-        <MudPaper Elevation="4" Style="position: fixed; left: 0; top: 64px; width: 240px; height: calc(100% - 64px); z-index: 1200; background-color: #fafafa; overflow-y: auto;">
-            <MudPaper Elevation="0" Class="pa-4" Style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+        <MudPaper Elevation="4" Style="@DrawerStyle">
+            <MudPaper Elevation="0" Class="pa-4" Style="@DrawerHeaderStyle">
                 <MudStack Spacing="1" AlignItems="AlignItems.Center">
                     <MudIcon Icon="@Icons.Material.Filled.Analytics" Size="Size.Large" />
                     <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">Menu</MudText>
@@ -31,33 +31,33 @@
                 <MudNavLink Href="/" 
                             Match="NavLinkMatch.All" 
                             Icon="@Icons.Material.Filled.Dashboard"
-                            Style="border-radius: 8px; margin-bottom: 4px; font-weight: 500;">
+                            Style="@NavLinkStyle">
                     Dashboard
                 </MudNavLink>
                 <MudNavLink Href="/extract" 
                             Icon="@Icons.Material.Filled.DataObject"
-                            Style="border-radius: 8px; margin-bottom: 4px; font-weight: 500;">
+                            Style="@NavLinkStyle">
                     Extraer Auditoría
                 </MudNavLink>
                 <MudNavLink Href="/export" 
                             Icon="@Icons.Material.Filled.FileDownload"
-                            Style="border-radius: 8px; margin-bottom: 4px; font-weight: 500;">
+                            Style="@NavLinkStyle">
                     Exportar
                 </MudNavLink>
                 <MudNavLink Href="/history" 
                             Icon="@Icons.Material.Filled.History"
-                            Style="border-radius: 8px; margin-bottom: 4px; font-weight: 500;">
+                            Style="@NavLinkStyle">
                     Historial
                 </MudNavLink>
                 <MudDivider Class="my-4" />
                 <MudNavLink Href="/settings" 
                             Icon="@Icons.Material.Filled.Settings"
-                            Style="border-radius: 8px; margin-bottom: 4px; font-weight: 500;">
+                            Style="@NavLinkStyle">
                     Configuración
                 </MudNavLink>
             </MudNavMenu>
             <MudSpacer />
-            <MudPaper Elevation="0" Class="pa-4 ma-2" Style="background-color: #e3f2fd; border-radius: 8px;">
+            <MudPaper Elevation="0" Class="pa-4 ma-2" Style="@DrawerFooterStyle">
                 <MudStack Spacing="1">
                     <MudText Typo="Typo.caption" Style="font-weight: 600;">Versión 1.0.0</MudText>
                     <MudText Typo="Typo.caption" Color="Color.Secondary">© 2026 Audit Pro</MudText>
@@ -66,7 +66,7 @@
         </MudPaper>
     }
     
-    <MudMainContent Style="@(_drawerOpen ? "margin-left: 240px; background-color: #f5f7fa; transition: margin-left 0.3s;" : "background-color: #f5f7fa; transition: margin-left 0.3s;")">
+    <MudMainContent Style="@MainContentStyle">
         <MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-6 pb-8">
             @Body
         </MudContainer>
@@ -75,6 +75,15 @@
 
 @code {
     private bool _drawerOpen = true;
+
+    private const string AppBarStyle = "background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);";
+    private const string DrawerStyle = "position: fixed; left: 0; top: 64px; width: 240px; height: calc(100% - 64px); z-index: 1200; background-color: #fafafa; overflow-y: auto;";
+    private const string DrawerHeaderStyle = "background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;";
+    private const string DrawerFooterStyle = "background-color: #e3f2fd; border-radius: 8px;";
+    private const string NavLinkStyle = "border-radius: 8px; margin-bottom: 4px; font-weight: 500;";
+    private string MainContentStyle => _drawerOpen
+        ? "margin-left: 240px; background-color: #f5f7fa; transition: margin-left 0.3s;"
+        : "background-color: #f5f7fa; transition: margin-left 0.3s;";
 
     private MudTheme _theme = new MudTheme()
     {
