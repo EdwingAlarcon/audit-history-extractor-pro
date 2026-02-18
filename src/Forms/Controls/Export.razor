@@ -1,0 +1,475 @@
+@page "/export"
+@using AuditHistoryExtractorPro.Application.UseCases.ExportAudit
+@using AuditHistoryExtractorPro.Models
+@using MediatR
+@inject IMediator Mediator
+@inject ILogger<Export> Logger
+@inject NavigationManager Navigation
+
+<PageTitle>Exportar - Audit History Extractor Pro</PageTitle>
+
+<h1 style="color: #0078D4; margin-bottom: 30px; font-size: 36px;">📊 Exportar Datos</h1>
+
+<div class="export-container">
+    <div class="export-section">
+        <h2 style="color: #0078D4; margin-bottom: 20px;">📁 Configuración de Exportación</h2>
+        
+        <div class="form-group">
+            <label>Formato de Exportación:</label>
+            <div class="format-selector">
+                <button class="format-button @(_format == "Excel" ? "active" : "")" 
+                        @onclick="@(() => _format = "Excel")">
+                    <div class="format-icon" style="background: #107C10;">📊</div>
+                    <div>
+                        <strong>Excel</strong>
+                        <p>Archivo .xlsx con formato</p>
+                    </div>
+                </button>
+                
+                <button class="format-button @(_format == "CSV" ? "active" : "")" 
+                        @onclick="@(() => _format = "CSV")">
+                    <div class="format-icon" style="background: #0078D4;">📄</div>
+                    <div>
+                        <strong>CSV</strong>
+                        <p>Valores separados por comas</p>
+                    </div>
+                </button>
+                
+                <button class="format-button @(_format == "JSON" ? "active" : "")" 
+                        @onclick="@(() => _format = "JSON")">
+                    <div class="format-icon" style="background: #5C2D91;">{ }</div>
+                    <div>
+                        <strong>JSON</strong>
+                        <p>Formato estructurado</p>
+                    </div>
+                </button>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>Nombre del archivo:</label>
+            <input type="text" @bind="_fileName" placeholder="AuditHistory_Export" class="form-input" />
+        </div>
+
+        <div class="form-group">
+            <label>Ruta de destino:</label>
+            <input type="text" @bind="_outputPath" placeholder="C:\Exports" class="form-input" />
+            <small style="color: #605E5C;">Se creará si no existe. Dejar en blanco para usar carpeta por defecto.</small>
+        </div>
+
+        <div class="form-group">
+            <label>Opciones de exportación:</label>
+            <div class="checkbox-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="_includeHeaders" />
+                    <span>Incluir encabezados</span>
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="_includeMetadata" />
+                    <span>Incluir metadatos</span>
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="_compressFile" />
+                    <span>Comprimir archivo (.zip)</span>
+                </label>
+            </div>
+        </div>
+
+        @if (_isExporting)
+        {
+            <div class="progress-container">
+                <div class="spinner"></div>
+                <p style="text-align: center; color: #0078D4; margin-top: 15px; font-weight: 600;">
+                    Exportando datos...
+                </p>
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(_message))
+        {
+            <div class="@(_isError ? "message-error" : "message-success")">
+                @_message
+                @if (!string.IsNullOrEmpty(_exportedFilePath))
+                {
+                    <p style="margin-top: 10px;">
+                        <strong>📁 Archivo:</strong> @_exportedFilePath
+                    </p>
+                    <p>
+                        <strong>💾 Tamaño:</strong> @FormatFileSize(_fileSize)
+                    </p>
+                }
+            </div>
+        }
+
+        <div class="stats-grid">
+            <div class="stat-card" style="border-left: 4px solid #0078D4;">
+                <div class="stat-number">@_totalRecords</div>
+                <div class="stat-label">Registros Disponibles</div>
+            </div>
+            <div class="stat-card" style="border-left: 4px solid #107C10;">
+                <div class="stat-number">@_exportCount</div>
+                <div class="stat-label">Exportaciones Realizadas</div>
+            </div>
+            <div class="stat-card" style="border-left: 4px solid #5C2D91;">
+                <div class="stat-number">@_format</div>
+                <div class="stat-label">Formato Seleccionado</div>
+            </div>
+        </div>
+
+        <div class="button-group">
+            <button class="btn-primary" @onclick="StartExport" disabled="@_isExporting">
+                @(_isExporting ? "⏳ Exportando..." : "🚀 Exportar Datos")
+            </button>
+            <button class="btn-secondary" @onclick="@(() => Navigation.NavigateTo("/"))">
+                ⬅️ Volver al Dashboard
+            </button>
+            <button class="btn-info" @onclick="@(() => Navigation.NavigateTo("/extract"))">
+                🔽 Nueva Extracción
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _format = "Excel";
+    private string _fileName = "AuditHistory_Export";
+    private string _outputPath = string.Empty;
+    private bool _includeHeaders = true;
+    private bool _includeMetadata = true;
+    private bool _compressFile = false;
+    
+    private bool _isExporting = false;
+    private string _message = string.Empty;
+    private bool _isError = false;
+    private string _exportedFilePath = string.Empty;
+    private long _fileSize = 0;
+    
+    private int _totalRecords = 0; // Se obtiene de la extracción previa
+    private int _exportCount = 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // TODO: Cargar el número de registros extraídos previamente desde el servicio
+        await Task.CompletedTask;
+    }
+
+    private async Task StartExport()
+    {
+        _isExporting = true;
+        _message = string.Empty;
+        _isError = false;
+        _exportedFilePath = string.Empty;
+
+        try
+        {
+            // Validación
+            if (string.IsNullOrWhiteSpace(_fileName))
+            {
+                _message = "⚠️ Por favor ingrese un nombre para el archivo.";
+                _isError = true;
+                _isExporting = false;
+                return;
+            }
+
+            // Crear configuración de exportación
+            var config = new ExportConfiguration
+            {
+                Format = _format switch
+                {
+                    "Excel" => ExportFormat.Excel,
+                    "CSV" => ExportFormat.Csv,
+                    "JSON" => ExportFormat.Json,
+                    _ => ExportFormat.Excel
+                },
+                OutputPath = string.IsNullOrWhiteSpace(_outputPath) ? 
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "AuditExports") : 
+                    _outputPath,
+                FileName = _fileName,
+                CompressOutput = _compressFile,
+                IncludeTimestamp = true
+            };
+
+            // TODO: Obtener los registros reales de la extracción previa
+            var records = new List<AuditRecord>();
+
+            var command = new ExportAuditCommand
+            {
+                Records = records,
+                Configuration = config
+            };
+
+            var response = await Mediator.Send(command);
+
+            if (response.Success)
+            {
+                _exportedFilePath = response.FilePath ?? string.Empty;
+                _fileSize = response.FileSize;
+                _exportCount++;
+                _message = $"✅ Exportación completada exitosamente!";
+                _isError = false;
+            }
+            else
+            {
+                _message = $"❌ Error: {response.ErrorMessage}";
+                _isError = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error durante la exportación");
+            _message = $"❌ Error inesperado: {ex.Message}";
+            _isError = true;
+        }
+        finally
+        {
+            _isExporting = false;
+        }
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        double len = bytes;
+        int order = 0;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
+    }
+}
+
+<style>
+    .export-container {
+        max-width: 1000px;
+        margin: 0 auto;
+    }
+
+    .export-section {
+        background: white;
+        padding: 30px;
+        border-radius: 12px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+
+    .form-group {
+        margin-bottom: 25px;
+    }
+
+    label {
+        display: block;
+        color: #323130;
+        font-weight: 600;
+        margin-bottom: 10px;
+    }
+
+    .form-input {
+        width: 100%;
+        padding: 12px;
+        border: 2px solid #EDEBE9;
+        border-radius: 4px;
+        font-size: 14px;
+        transition: border-color 0.3s;
+    }
+
+    .form-input:focus {
+        outline: none;
+        border-color: #0078D4;
+    }
+
+    .format-selector {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-top: 10px;
+    }
+
+    .format-button {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        padding: 20px;
+        border: 2px solid #EDEBE9;
+        border-radius: 8px;
+        background: white;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+
+    .format-button:hover {
+        border-color: #0078D4;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+
+    .format-button.active {
+        border-color: #0078D4;
+        background: #F3F9FD;
+        box-shadow: 0 0 0 1px #0078D4;
+    }
+
+    .format-icon {
+        width: 50px;
+        height: 50px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+        color: white;
+    }
+
+    .format-button strong {
+        display: block;
+        color: #323130;
+        margin-bottom: 4px;
+    }
+
+    .format-button p {
+        margin: 0;
+        font-size: 12px;
+        color: #605E5C;
+    }
+
+    .checkbox-group {
+        display: flex;
+        gap: 20px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+    }
+
+    .checkbox-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+        font-weight: normal;
+        color: #323130;
+    }
+
+    .checkbox-label input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        cursor: pointer;
+        accent-color: #0078D4;
+    }
+
+    .progress-container {
+        text-align: center;
+        margin: 30px 0;
+    }
+
+    .spinner {
+        border: 4px solid #EDEBE9;
+        border-top: 4px solid #0078D4;
+        border-radius: 50%;
+        width: 50px;
+        height: 50px;
+        animation: spin 1s linear infinite;
+        margin: 0 auto;
+    }
+
+    @@keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    .message-success {
+        background: #DFF6DD;
+        border-left: 4px solid #107C10;
+        padding: 20px;
+        border-radius: 4px;
+        color: #107C10;
+        margin: 20px 0;
+    }
+
+    .message-error {
+        background: #FDE7E9;
+        border-left: 4px solid #E81123;
+        padding: 20px;
+        border-radius: 4px;
+        color: #A80000;
+        margin: 20px 0;
+    }
+
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 20px;
+        margin: 30px 0;
+    }
+
+    .stat-card {
+        background: #FAFAFA;
+        padding: 20px;
+        border-radius: 8px;
+        border-left: 4px solid #0078D4;
+    }
+
+    .stat-number {
+        font-size: 32px;
+        font-weight: 700;
+        color: #323130;
+        margin-bottom: 5px;
+    }
+
+    .stat-label {
+        color: #605E5C;
+        font-size: 14px;
+    }
+
+    .button-group {
+        display: flex;
+        gap: 15px;
+        margin-top: 30px;
+        flex-wrap: wrap;
+    }
+
+    .btn-primary, .btn-secondary, .btn-info {
+        padding: 14px 28px;
+        border: none;
+        border-radius: 4px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+
+    .btn-primary {
+        background: #0078D4;
+        color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+        background: #106EBE;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 120, 212, 0.3);
+    }
+
+    .btn-primary:disabled {
+        background: #A19F9D;
+        cursor: not-allowed;
+    }
+
+    .btn-secondary {
+        background: #EDEBE9;
+        color: #323130;
+    }
+
+    .btn-secondary:hover {
+        background: #E1DFDD;
+        transform: translateY(-2px);
+    }
+
+    .btn-info {
+        background: #00B7C3;
+        color: white;
+    }
+
+    .btn-info:hover {
+        background: #00A0AC;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 183, 195, 0.3);
+    }
+</style>

@@ -1,0 +1,347 @@
+@page "/extract"
+@using AuditHistoryExtractorPro.Application.UseCases.ExtractAudit
+@using AuditHistoryExtractorPro.Models
+@using MediatR
+@inject IMediator Mediator
+@inject ILogger<Extract> Logger
+@inject NavigationManager Navigation
+
+<PageTitle>Nueva Extracción - Audit History Extractor Pro</PageTitle>
+
+<h1 style="color: #0078D4; margin-bottom: 30px; font-size: 36px;">🔽 Nueva Extracción</h1>
+
+<div class="form-container">
+    <div class="form-section">
+        <h2 style="color: #0078D4; margin-bottom: 20px;">📋 Criterios de Extracción</h2>
+        
+        <div class="form-group">
+            <label>Nombre de la Entidad:</label>
+            <input type="text" @bind="_entityName" placeholder="account, contact, etc." class="form-input" />
+        </div>
+
+        <div class="form-group">
+            <label>ID del Registro (opcional):</label>
+            <input type="text" @bind="_recordId" placeholder="00000000-0000-0000-0000-000000000000" class="form-input" />
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>Fecha Inicio:</label>
+                <input type="date" @bind="_startDate" class="form-input" />
+            </div>
+            
+            <div class="form-group">
+                <label>Fecha Fin:</label>
+                <input type="date" @bind="_endDate" class="form-input" />
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>Operaciones específicas (opcional):</label>
+            <div class="checkbox-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="_includeCreate" />
+                    <span>Crear</span>
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="_includeUpdate" />
+                    <span>Actualizar</span>
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="_includeDelete" />
+                    <span>Eliminar</span>
+                </label>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>Límite de registros:</label>
+            <input type="number" @bind="_maxRecords" min="1" max="50000" class="form-input" />
+        </div>
+
+        @if (_isExtracting)
+        {
+            <div class="progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: @(_progress)%"></div>
+                </div>
+                <p style="text-align: center; color: #0078D4; margin-top: 10px;">
+                    Extrayendo... @(_progress)% completado
+                </p>
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(_message))
+        {
+            <div class="@(_isError ? "message-error" : "message-success")">
+                @_message
+                @if (_recordsExtracted > 0)
+                {
+                    <p><strong>Registros extraídos: @_recordsExtracted</strong></p>
+                }
+            </div>
+        }
+
+        <div class="button-group">
+            <button class="btn-primary" @onclick="StartExtraction" disabled="@_isExtracting">
+                @(_isExtracting ? "⏳ Extrayendo..." : "🚀 Iniciar Extracción")
+            </button>
+            <button class="btn-secondary" @onclick="@(() => Navigation.NavigateTo("/"))">
+                ⬅️ Volver al Dashboard
+            </button>
+            @if (_recordsExtracted > 0 && !_isExtracting)
+            {
+                <button class="btn-success" @onclick="@(() => Navigation.NavigateTo("/export"))">
+                    📊 Ir a Exportar →
+                </button>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _entityName = "account";
+    private string _recordId = string.Empty;
+    private DateTime? _startDate = DateTime.Now.AddMonths(-1);
+    private DateTime? _endDate = DateTime.Now;
+    private bool _includeCreate = true;
+    private bool _includeUpdate = true;
+    private bool _includeDelete = true;
+    private int _maxRecords = 1000;
+    
+    private bool _isExtracting = false;
+    private int _progress = 0;
+    private string _message = string.Empty;
+    private bool _isError = false;
+    private int _recordsExtracted = 0;
+
+    private async Task StartExtraction()
+    {
+        _isExtracting = true;
+        _progress = 0;
+        _message = string.Empty;
+        _isError = false;
+        _recordsExtracted = 0;
+
+        try
+        {
+            // Validación básica
+            if (string.IsNullOrWhiteSpace(_entityName))
+            {
+                _message = "⚠️ Por favor ingrese el nombre de la entidad.";
+                _isError = true;
+                _isExtracting = false;
+                return;
+            }
+
+            // Crear criterios de extracción
+            var operations = new List<OperationType>();
+            if (_includeCreate) operations.Add(OperationType.Create);
+            if (_includeUpdate) operations.Add(OperationType.Update);
+            if (_includeDelete) operations.Add(OperationType.Delete);
+
+            var criteria = new ExtractionCriteria
+            {
+                EntityNames = new List<string> { _entityName.Trim() },
+                FromDate = _startDate,
+                ToDate = _endDate,
+                Operations = operations.Any() ? operations : null,
+                PageSize = _maxRecords
+            };
+
+            // Progreso simulado
+            var progress = new Progress<int>(p =>
+            {
+                _progress = p;
+                InvokeAsync(StateHasChanged);
+            });
+
+            // Ejecutar comando
+            var command = new ExtractAuditCommand
+            {
+                Criteria = criteria,
+                Progress = null // Por ahora sin progreso hasta implementar correctamente
+            };
+
+            var response = await Mediator.Send(command);
+
+            if (response.Success)
+            {
+                _recordsExtracted = response.Records.Count;
+                _message = $"✅ Extracción completada exitosamente!";
+                _isError = false;
+                _progress = 100;
+            }
+            else
+            {
+                _message = $"❌ Error: {response.ErrorMessage}";
+                _isError = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error durante la extracción");
+            _message = $"❌ Error inesperado: {ex.Message}";
+            _isError = true;
+        }
+        finally
+        {
+            _isExtracting = false;
+        }
+    }
+}
+
+<style>
+    .form-container {
+        max-width: 900px;
+        margin: 0 auto;
+    }
+
+    .form-section {
+        background: white;
+        padding: 30px;
+        border-radius: 12px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+
+    .form-group {
+        margin-bottom: 25px;
+    }
+
+    .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+    }
+
+    label {
+        display: block;
+        color: #323130;
+        font-weight: 600;
+        margin-bottom: 8px;
+    }
+
+    .form-input {
+        width: 100%;
+        padding: 12px;
+        border: 2px solid #EDEBE9;
+        border-radius: 4px;
+        font-size: 14px;
+        transition: border-color 0.3s;
+    }
+
+    .form-input:focus {
+        outline: none;
+        border-color: #0078D4;
+    }
+
+    .checkbox-group {
+        display: flex;
+        gap: 20px;
+        flex-wrap: wrap;
+    }
+
+    .checkbox-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+        font-weight: normal;
+    }
+
+    .checkbox-label input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        cursor: pointer;
+    }
+
+    .progress-container {
+        margin: 20px 0;
+    }
+
+    .progress-bar {
+        width: 100%;
+        height: 30px;
+        background: #EDEBE9;
+        border-radius: 15px;
+        overflow: hidden;
+    }
+
+    .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #0078D4 0%, #50E6FF 100%);
+        transition: width 0.3s;
+    }
+
+    .message-success {
+        background: #DFF6DD;
+        border-left: 4px solid #107C10;
+        padding: 15px;
+        border-radius: 4px;
+        color: #107C10;
+        margin: 20px 0;
+    }
+
+    .message-error {
+        background: #FDE7E9;
+        border-left: 4px solid #E81123;
+        padding: 15px;
+        border-radius: 4px;
+        color: #A80000;
+        margin: 20px 0;
+    }
+
+    .button-group {
+        display: flex;
+        gap: 15px;
+        margin-top: 30px;
+        flex-wrap: wrap;
+    }
+
+    .btn-primary, .btn-secondary, .btn-success {
+        padding: 14px 28px;
+        border: none;
+        border-radius: 4px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+
+    .btn-primary {
+        background: #0078D4;
+        color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+        background: #106EBE;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 120, 212, 0.3);
+    }
+
+    .btn-primary:disabled {
+        background: #A19F9D;
+        cursor: not-allowed;
+    }
+
+    .btn-secondary {
+        background: #EDEBE9;
+        color: #323130;
+    }
+
+    .btn-secondary:hover {
+        background: #E1DFDD;
+        transform: translateY(-2px);
+    }
+
+    .btn-success {
+        background: #107C10;
+        color: white;
+    }
+
+    .btn-success:hover {
+        background: #0E6B0E;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(16, 124, 16, 0.3);
+    }
+</style>
