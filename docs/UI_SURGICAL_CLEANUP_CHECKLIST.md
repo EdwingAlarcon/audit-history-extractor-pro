@@ -79,6 +79,7 @@ Estado Fase 4 (avance):
 - `Extract` y `Export` delegan validación/mapeo de entrada en `ExtractViewService` y `ExportViewService`, reduciendo reglas en componentes Razor.
 - `History`, `Extract` y `Export` usan modelos de estado explícitos de vista (`*PageViewModel`) para centralizar estado UI por página.
 - `Extract` y `Export` encapsulan la orquestación de casos de uso en coordinadores UI (`ExtractPageCoordinator`, `ExportPageCoordinator`) en lugar de invocar MediatR directamente desde Razor.
+- `History` también usa un coordinador UI (`HistoryPageCoordinator`) para carga/sincronización de sesión y aplicación de filtros/paginación.
 
 ## Fase 5 — Hardening antes de merge
 - [ ] `dotnet build AuditHistoryExtractorPro.sln`.

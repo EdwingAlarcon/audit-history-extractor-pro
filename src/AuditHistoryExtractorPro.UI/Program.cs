@@ -33,6 +33,7 @@ builder.Services.AddSingleton<ExtractViewService>();
 builder.Services.AddSingleton<ExportViewService>();
 builder.Services.AddScoped<ExtractPageCoordinator>();
 builder.Services.AddScoped<ExportPageCoordinator>();
+builder.Services.AddScoped<HistoryPageCoordinator>();
 
 // Configuración de Dataverse desde appsettings.json
 var dataverseConfig = builder.Configuration.GetSection("Dataverse");

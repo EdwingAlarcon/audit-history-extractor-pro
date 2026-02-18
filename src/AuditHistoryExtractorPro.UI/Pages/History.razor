@@ -3,12 +3,9 @@
 @using AuditHistoryExtractorPro.Domain.Entities
 @using AuditHistoryExtractorPro.UI.Services
 @using AuditHistoryExtractorPro.UI.ViewModels
-@using MediatR
-@inject IMediator Mediator
 @inject ILogger<History> Logger
 @inject NavigationManager Navigation
-@inject AuditSessionState SessionState
-@inject HistoryViewService HistoryViewService
+@inject HistoryPageCoordinator HistoryPageCoordinator
 
 <PageTitle>Historial - Audit History Extractor Pro</PageTitle>
 
@@ -193,15 +190,7 @@
 
         try
         {
-            var records = SessionState.GetRecordsCopy();
-            _vm.AllAuditRecords.Clear();
-            _vm.AllAuditRecords.AddRange(records);
-            RefreshView(resetPage: true);
-
-            if (!_vm.AllAuditRecords.Any())
-            {
-                _vm.Message = "ℹ️ No hay datos en sesión. Ejecuta una extracción para ver historial.";
-            }
+            HistoryPageCoordinator.LoadFromSession(_vm);
 
             await Task.CompletedTask;
         }
@@ -225,17 +214,7 @@
         
         try
         {
-            RefreshView(resetPage: true);
-
-            if (_vm.IsError)
-            {
-                return;
-            }
-
-            if (!_vm.FilteredRecords.Any())
-            {
-                _vm.Message = "ℹ️ No hay resultados para los filtros aplicados.";
-            }
+            HistoryPageCoordinator.ApplyFilters(_vm);
         }
         catch (Exception ex)
         {
@@ -251,15 +230,7 @@
 
     private async Task ClearFilters()
     {
-        _vm.EntityFilter = string.Empty;
-        _vm.RecordIdFilter = string.Empty;
-        _vm.UserFilter = string.Empty;
-        _vm.OperationFilter = string.Empty;
-        _vm.DateFrom = DateTime.Now.AddDays(-30);
-        _vm.DateTo = DateTime.Now;
-        _vm.Message = string.Empty;
-        _vm.IsError = false;
-        RefreshView(resetPage: true);
+        HistoryPageCoordinator.ClearFilters(_vm);
         await Task.CompletedTask;
     }
 
@@ -271,20 +242,12 @@
 
     private void PreviousPage()
     {
-        if (_vm.CurrentPage > 1)
-        {
-            _vm.CurrentPage--;
-            RefreshView(resetPage: false);
-        }
+        HistoryPageCoordinator.GoToPreviousPage(_vm);
     }
 
     private void NextPage()
     {
-        if (_vm.CurrentPage < _vm.TotalPages)
-        {
-            _vm.CurrentPage++;
-            RefreshView(resetPage: false);
-        }
+        HistoryPageCoordinator.GoToNextPage(_vm);
     }
 
     private string GetOperationClass(string operation) => operation switch
@@ -295,41 +258,6 @@
         _ => ""
     };
 
-    private HistoryFilter CreateFilter()
-    {
-        return new HistoryFilter
-        {
-            Entity = _vm.EntityFilter,
-            RecordId = _vm.RecordIdFilter,
-            User = _vm.UserFilter,
-            Operation = _vm.OperationFilter,
-            DateFrom = _vm.DateFrom,
-            DateTo = _vm.DateTo
-        };
-    }
-
-    private void RefreshView(bool resetPage)
-    {
-        var requestedPage = resetPage ? 1 : _vm.CurrentPage;
-        var result = HistoryViewService.BuildView(
-            _vm.AllAuditRecords,
-            CreateFilter(),
-            requestedPage,
-            _vm.PageSize);
-
-        if (!string.IsNullOrWhiteSpace(result.ValidationError))
-        {
-            _vm.IsError = true;
-            _vm.Message = result.ValidationError;
-            return;
-        }
-
-        _vm.FilteredRecords = result.FilteredRecords;
-        _vm.PagedRecords = result.PagedRecords;
-        _vm.Stats = result.Stats;
-        _vm.CurrentPage = result.CurrentPage;
-        _vm.TotalPages = result.TotalPages;
-    }
 }
 
 <style>
