@@ -79,6 +79,24 @@
                                    class="form-input" />
                         </div>
                     </div>
+
+                    @if (_authType == "oauth2")
+                    {
+                        <small>
+                            Si no tienes App Registration propia, deja Tenant/Client en blanco y se usará el AppId público de Microsoft.
+                        </small>
+                    }
+                }
+
+                @if (_authType == "oauth2")
+                {
+                    <div class="form-group">
+                        <label>Flujo OAuth:</label>
+                        <select @bind="_oauthFlow" class="form-input">
+                            <option value="device_code">Device Code Flow (recomendado para Blazor)</option>
+                            <option value="interactive">Login interactivo del sistema (local)</option>
+                        </select>
+                    </div>
                 }
 
                 @if (_authType == "client_secret")
@@ -121,6 +139,14 @@
                         📄 Ver YAML
                     </button>
                 </div>
+
+                @if (_authType == "oauth2" && !string.IsNullOrWhiteSpace(_deviceCodeUserCode))
+                {
+                    <div class="message-info" style="margin-top: 12px;">
+                        <strong>Código de acceso:</strong> @_deviceCodeUserCode<br />
+                        Abre <strong>microsoft.com/devicelogin</strong> e ingresa este código para completar el login.
+                    </div>
+                }
 
                 @if (_availableEntities.Any())
                 {
@@ -379,6 +405,9 @@
     private string _clientSecret = "";
     private string _certificatePath = "";
     private string _certificatePassword = "";
+    private string _oauthFlow = "device_code";
+    private string _deviceCodeUserCode = string.Empty;
+    private string _deviceCodeMessage = string.Empty;
 
     // Múltiples cuentas
     private string _accountName = "";
@@ -455,6 +484,8 @@
         }
 
         _isTesting = true;
+        _deviceCodeUserCode = string.Empty;
+        _deviceCodeMessage = string.Empty;
         ShowMessage("Probando conexión con Dataverse...", "info");
         StateHasChanged();
 
@@ -604,6 +635,23 @@
     private async Task<DataverseServiceClient> CreateServiceClientAsync(CancellationToken cancellationToken)
     {
         var authProvider = BuildAuthenticationProvider();
+
+        if (_authType == "oauth2" && string.Equals(_oauthFlow, "interactive", StringComparison.OrdinalIgnoreCase))
+        {
+            var interactiveConnectionString = BuildInteractiveConnectionString();
+            var interactiveClient = new DataverseServiceClient(interactiveConnectionString);
+
+            if (!interactiveClient.IsReady)
+            {
+                throw new InvalidOperationException(
+                    string.IsNullOrWhiteSpace(interactiveClient.LastError)
+                        ? "No se pudo completar login interactivo."
+                        : interactiveClient.LastError);
+            }
+
+            return interactiveClient;
+        }
+
         var token = await authProvider.GetAccessTokenAsync(cancellationToken);
         if (string.IsNullOrWhiteSpace(token))
         {
@@ -625,6 +673,15 @@
         return client;
     }
 
+    private string BuildInteractiveConnectionString()
+    {
+        var appId = string.IsNullOrWhiteSpace(AuthConfig.ClientId)
+            ? OAuth2AuthenticationProvider.DefaultPublicClientAppId
+            : AuthConfig.ClientId;
+
+        return $"AuthType=OAuth;Url={AuthConfig.EnvironmentUrl};AppId={appId};RedirectUri={OAuth2AuthenticationProvider.DefaultPublicClientRedirectUri};LoginPrompt=Auto;RequireNewInstance=True;";
+    }
+
     private IAuthenticationProvider BuildAuthenticationProvider()
     {
         AuthConfig.Validate();
@@ -633,7 +690,8 @@
         {
             DomainAuthenticationType.OAuth2 => new OAuth2AuthenticationProvider(
                 AuthConfig,
-                ServiceProvider.GetRequiredService<AuditHistoryExtractorPro.Domain.Interfaces.ILogger<OAuth2AuthenticationProvider>>()),
+                ServiceProvider.GetRequiredService<AuditHistoryExtractorPro.Domain.Interfaces.ILogger<OAuth2AuthenticationProvider>>(),
+                OnDeviceCodeReceived),
 
             DomainAuthenticationType.ClientSecret => new ClientSecretAuthenticationProvider(
                 AuthConfig,
@@ -668,6 +726,21 @@
             "managed_identity" => DomainAuthenticationType.ManagedIdentity,
             _ => DomainAuthenticationType.OAuth2
         };
+
+        AuthConfig.AdditionalParameters ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        AuthConfig.AdditionalParameters["AuthFlow"] = _oauthFlow;
+    }
+
+    private void OnDeviceCodeReceived(DeviceCodeChallengeInfo challenge)
+    {
+        _deviceCodeUserCode = challenge.UserCode;
+        _deviceCodeMessage = challenge.Message;
+
+        ShowMessage(
+            $"Código recibido: {challenge.UserCode}. Abre microsoft.com/devicelogin e ingrésalo para continuar.",
+            "info");
+
+        _ = InvokeAsync(StateHasChanged);
     }
 
     private void ShowConfigYaml()
@@ -758,6 +831,7 @@
 dataverse:
   environment_url: ""{_environmentUrl}""
   auth_type: ""{_authType}""
+    oauth_flow: ""{_oauthFlow}""
   tenant_id: ""{_tenantId}""
   client_id: ""{_clientId}""
   

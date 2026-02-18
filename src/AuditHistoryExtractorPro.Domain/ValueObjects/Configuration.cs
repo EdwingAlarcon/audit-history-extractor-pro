@@ -105,8 +105,8 @@ public class AuthenticationConfiguration
         switch (Type)
         {
             case AuthenticationType.OAuth2:
-                if (string.IsNullOrWhiteSpace(TenantId) || string.IsNullOrWhiteSpace(ClientId))
-                    throw new ArgumentException("TenantId and ClientId are required for OAuth2");
+                if (string.IsNullOrWhiteSpace(EnvironmentUrl))
+                    throw new ArgumentException("EnvironmentUrl is required for OAuth2");
                 break;
             
             case AuthenticationType.ClientSecret:

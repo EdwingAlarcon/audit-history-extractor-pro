@@ -7,31 +7,57 @@ using System.Security.Cryptography.X509Certificates;
 
 namespace AuditHistoryExtractorPro.Infrastructure.Authentication;
 
+public record DeviceCodeChallengeInfo(string UserCode, string VerificationUrl, string Message);
+
 /// <summary>
 /// Proveedor de autenticación OAuth2 para Dataverse
 /// </summary>
 public class OAuth2AuthenticationProvider : IAuthenticationProvider
 {
+    public const string DefaultPublicClientAppId = "51f81489-12ee-4a9e-aaae-a2591f45987d";
+    public const string DefaultPublicClientRedirectUri = "app://58145B91-0C36-4500-8554-080854F2AC97";
+
     private readonly AuthenticationConfiguration _config;
     private readonly ILogger<OAuth2AuthenticationProvider> _logger;
+    private readonly Action<DeviceCodeChallengeInfo>? _deviceCodeCallback;
     private IPublicClientApplication? _clientApp;
 
     public OAuth2AuthenticationProvider(
         AuthenticationConfiguration config,
-        ILogger<OAuth2AuthenticationProvider> logger)
+        ILogger<OAuth2AuthenticationProvider> logger,
+        Action<DeviceCodeChallengeInfo>? deviceCodeCallback = null)
     {
         _config = config;
         _logger = logger;
+        _deviceCodeCallback = deviceCodeCallback;
         InitializeClientApp();
     }
 
     private void InitializeClientApp()
     {
+        var clientId = string.IsNullOrWhiteSpace(_config.ClientId)
+            ? DefaultPublicClientAppId
+            : _config.ClientId;
+
+        var tenantId = string.IsNullOrWhiteSpace(_config.TenantId)
+            ? "organizations"
+            : _config.TenantId;
+
         _clientApp = PublicClientApplicationBuilder
-            .Create(_config.ClientId)
-            .WithAuthority(AzureCloudInstance.AzurePublic, _config.TenantId)
-            .WithRedirectUri("http://localhost")
+            .Create(clientId)
+            .WithAuthority(AzureCloudInstance.AzurePublic, tenantId)
+            .WithRedirectUri(DefaultPublicClientRedirectUri)
             .Build();
+    }
+
+    private bool UseDeviceCodeFlow()
+    {
+        if (_config.AdditionalParameters?.TryGetValue("AuthFlow", out var authFlow) == true)
+        {
+            return string.Equals(authFlow, "device_code", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return true;
     }
 
     public async Task<string> GetAccessTokenAsync(CancellationToken cancellationToken = default)
@@ -58,11 +84,28 @@ public class OAuth2AuthenticationProvider : IAuthenticationProvider
                 }
             }
 
-            // Si no hay token válido, solicitar interactivamente
+            // Si no hay token válido, solicitar con Device Code (compatible con Blazor Server)
             if (result == null)
             {
-                result = await _clientApp.AcquireTokenInteractive(scopes)
-                    .ExecuteAsync(cancellationToken);
+                if (UseDeviceCodeFlow())
+                {
+                    result = await _clientApp.AcquireTokenWithDeviceCode(scopes, deviceCodeResult =>
+                    {
+                        _logger.LogInformation("Device Code challenge: {Message}", deviceCodeResult.Message);
+
+                        _deviceCodeCallback?.Invoke(new DeviceCodeChallengeInfo(
+                            deviceCodeResult.UserCode,
+                            deviceCodeResult.VerificationUrl,
+                            deviceCodeResult.Message));
+
+                        return Task.CompletedTask;
+                    }).ExecuteAsync(cancellationToken);
+                }
+                else
+                {
+                    result = await _clientApp.AcquireTokenInteractive(scopes)
+                        .ExecuteAsync(cancellationToken);
+                }
             }
 
             _logger.LogInformation("OAuth2 authentication successful");
