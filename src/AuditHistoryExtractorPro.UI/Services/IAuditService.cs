@@ -4,6 +4,11 @@ namespace AuditHistoryExtractorPro.UI.Services;
 
 public interface IAuditService
 {
+    bool IsConnected { get; }
+    string OrganizationName { get; }
+
+    Task ConnectAsync(CancellationToken cancellationToken = default);
+
     Task<ExtractExecutionResult> ExtractAuditHistoryAsync(
         ExtractInputModel input,
         IProgress<ExtractionProgress>? progress = null,

@@ -1,5 +1,6 @@
 @page "/"
 @inject NavigationManager Navigation
+@inject AuditHistoryExtractorPro.UI.Services.IAuditService AuditService
 
 <PageTitle>Dashboard - Audit History Extractor Pro</PageTitle>
 
@@ -31,6 +32,9 @@
     <h2 style="color: #323130; margin-bottom: 20px;">🚀 Acciones Rápidas</h2>
     
     <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+        <button class="btn-ms btn-ms-primary" @onclick="ConnectDataverseAsync" disabled="@_isLoadingConnection">
+            @(_isLoadingConnection ? "Conectando..." : "Conectar")
+        </button>
         <button class="btn-ms btn-ms-primary" @onclick="ExtraerAuditAsync">Extraer</button>
         <button class="btn-ms btn-ms-success" @onclick="NavigateToExport">Exportar</button>
         <button class="btn-secondary" @onclick="NavigateToSettings">⚙️ Configuración</button>
@@ -42,8 +46,11 @@
     <h3 style="color: #0078D4; margin-bottom: 20px;">✅ Estado del Sistema</h3>
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
         <div>
-            <strong style="color: #107C10;">🟢 Conexión</strong><br/>
-            <span style="color: #605E5C;">Dataverse Conectado</span>
+            <strong style="color: #323130; display:flex; align-items:center; gap:8px;">
+                <span class="status-dot" style="background-color:@GetConnectionStatusColor();"></span>
+                Conexión
+            </strong><br/>
+            <span style="color: #605E5C;">@GetConnectionStatusText()</span>
         </div>
         <div>
             <strong style="color: #107C10;">🟢 Servicios</strong><br/>
@@ -61,6 +68,7 @@
     private long _totalRecords = 0;
     private int _activeEntities = 0;
     private string _lastExtractionDate = "N/A";
+    private bool _isLoadingConnection;
 
     protected override async Task OnInitializedAsync()
     {
@@ -96,6 +104,47 @@
         Console.WriteLine("Botón presionado...");
         Navigation.NavigateTo("/extract", forceLoad: false);
         return Task.CompletedTask;
+    }
+
+    private async Task ConnectDataverseAsync()
+    {
+        _isLoadingConnection = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            await AuditService.ConnectAsync();
+        }
+        catch
+        {
+        }
+        finally
+        {
+            _isLoadingConnection = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private string GetConnectionStatusColor()
+    {
+        if (_isLoadingConnection)
+        {
+            return "#FFB900";
+        }
+
+        return AuditService.IsConnected ? "#7FBA00" : "#F25022";
+    }
+
+    private string GetConnectionStatusText()
+    {
+        if (_isLoadingConnection)
+        {
+            return "Conectando...";
+        }
+
+        return AuditService.IsConnected
+            ? $"Conectado a: {AuditService.OrganizationName}"
+            : "Desconectado";
     }
 
     private void NavigateToExport()
@@ -145,6 +194,14 @@
     .card p {
         font-size: 18px;
         opacity: 0.95;
+    }
+
+    .status-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        display: inline-block;
+        box-shadow: 0 0 0 2px rgba(0,0,0,0.06);
     }
     
 </style>
