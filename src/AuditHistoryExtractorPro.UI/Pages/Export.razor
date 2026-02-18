@@ -3,6 +3,7 @@
 @using AuditHistoryExtractorPro.Domain.ValueObjects
 @using AuditHistoryExtractorPro.Domain.Entities
 @using AuditHistoryExtractorPro.UI.Services
+@using AuditHistoryExtractorPro.UI.ViewModels
 @using MediatR
 @inject IMediator Mediator
 @inject ILogger<Export> Logger
@@ -21,9 +22,9 @@
         <div class="form-group">
             <label>Formato de Exportación:</label>
             <div class="format-selector">
-                <button class="format-button @(_format == "Excel" ? "active" : "")" 
-                        @onclick="@(() => _format = "Excel")"
-                        disabled="@_isExporting">
+                <button class="format-button @(_vm.Format == "Excel" ? "active" : "")" 
+                        @onclick="@(() => _vm.Format = "Excel")"
+                        disabled="@_vm.IsExporting">
                     <div class="format-icon" style="background: #107C10;">📊</div>
                     <div>
                         <strong>Excel</strong>
@@ -31,9 +32,9 @@
                     </div>
                 </button>
                 
-                <button class="format-button @(_format == "CSV" ? "active" : "")" 
-                        @onclick="@(() => _format = "CSV")"
-                        disabled="@_isExporting">
+                <button class="format-button @(_vm.Format == "CSV" ? "active" : "")" 
+                    @onclick="@(() => _vm.Format = "CSV")"
+                    disabled="@_vm.IsExporting">
                     <div class="format-icon" style="background: #0078D4;">📄</div>
                     <div>
                         <strong>CSV</strong>
@@ -41,9 +42,9 @@
                     </div>
                 </button>
                 
-                <button class="format-button @(_format == "JSON" ? "active" : "")" 
-                        @onclick="@(() => _format = "JSON")"
-                        disabled="@_isExporting">
+                <button class="format-button @(_vm.Format == "JSON" ? "active" : "")" 
+                    @onclick="@(() => _vm.Format = "JSON")"
+                    disabled="@_vm.IsExporting">
                     <div class="format-icon" style="background: #5C2D91;">{ }</div>
                     <div>
                         <strong>JSON</strong>
@@ -55,12 +56,12 @@
 
         <div class="form-group">
             <label>Nombre del archivo:</label>
-            <input type="text" @bind="_fileName" placeholder="AuditHistory_Export" class="form-input" disabled="@_isExporting" />
+            <input type="text" @bind="_vm.FileName" placeholder="AuditHistory_Export" class="form-input" disabled="@_vm.IsExporting" />
         </div>
 
         <div class="form-group">
             <label>Ruta de destino:</label>
-            <input type="text" @bind="_outputPath" placeholder="C:\Exports" class="form-input" disabled="@_isExporting" />
+            <input type="text" @bind="_vm.OutputPath" placeholder="C:\Exports" class="form-input" disabled="@_vm.IsExporting" />
             <small style="color: #605E5C;">Se creará si no existe. Dejar en blanco para usar carpeta por defecto.</small>
         </div>
 
@@ -68,28 +69,28 @@
             <label>Opciones de exportación:</label>
             <div class="checkbox-group">
                 <label class="checkbox-label">
-                    <input type="checkbox" @bind="_includeHeaders" disabled="@_isExporting" />
+                    <input type="checkbox" @bind="_vm.IncludeHeaders" disabled="@_vm.IsExporting" />
                     <span>Incluir encabezados</span>
                 </label>
                 <label class="checkbox-label">
-                    <input type="checkbox" @bind="_includeMetadata" disabled="@_isExporting" />
+                    <input type="checkbox" @bind="_vm.IncludeMetadata" disabled="@_vm.IsExporting" />
                     <span>Incluir metadatos</span>
                 </label>
                 <label class="checkbox-label">
-                    <input type="checkbox" @bind="_compressFile" disabled="@_isExporting" />
+                    <input type="checkbox" @bind="_vm.CompressFile" disabled="@_vm.IsExporting" />
                     <span>Comprimir archivo (.zip)</span>
                 </label>
             </div>
         </div>
 
-        @if (_totalRecords <= 0)
+        @if (_vm.TotalRecords <= 0)
         {
             <div class="message-info">
                 ⚠️ No hay registros listos para exportar. Ejecuta una extracción primero.
             </div>
         }
 
-        @if (_isExporting)
+        @if (_vm.IsExporting)
         {
             <div class="progress-container">
                 <div class="spinner"></div>
@@ -99,17 +100,17 @@
             </div>
         }
 
-        @if (!string.IsNullOrEmpty(_message))
+        @if (!string.IsNullOrEmpty(_vm.Message))
         {
-            <div class="@(_isError ? "message-error" : "message-success")">
-                @_message
-                @if (!string.IsNullOrEmpty(_exportedFilePath))
+            <div class="@(_vm.IsError ? "message-error" : "message-success")">
+                @_vm.Message
+                @if (!string.IsNullOrEmpty(_vm.ExportedFilePath))
                 {
                     <p style="margin-top: 10px;">
-                        <strong>📁 Archivo:</strong> @_exportedFilePath
+                        <strong>📁 Archivo:</strong> @_vm.ExportedFilePath
                     </p>
                     <p>
-                        <strong>💾 Tamaño:</strong> @FormatFileSize(_fileSize)
+                        <strong>💾 Tamaño:</strong> @FormatFileSize(_vm.FileSize)
                     </p>
                 }
             </div>
@@ -117,22 +118,22 @@
 
         <div class="stats-grid">
             <div class="stat-card" style="border-left: 4px solid #0078D4;">
-                <div class="stat-number">@_totalRecords</div>
+                <div class="stat-number">@_vm.TotalRecords</div>
                 <div class="stat-label">Registros Disponibles</div>
             </div>
             <div class="stat-card" style="border-left: 4px solid #107C10;">
-                <div class="stat-number">@_exportCount</div>
+                <div class="stat-number">@_vm.ExportCount</div>
                 <div class="stat-label">Exportaciones Realizadas</div>
             </div>
             <div class="stat-card" style="border-left: 4px solid #5C2D91;">
-                <div class="stat-number">@_format</div>
+                <div class="stat-number">@_vm.Format</div>
                 <div class="stat-label">Formato Seleccionado</div>
             </div>
         </div>
 
         <div class="button-group">
-            <button class="btn-primary" @onclick="StartExport" disabled="@(!_canExport)">
-                @(_isExporting ? "⏳ Exportando..." : "🚀 Exportar Datos")
+            <button class="btn-primary" @onclick="StartExport" disabled="@(!_vm.CanExport)">
+                @(_vm.IsExporting ? "⏳ Exportando..." : "🚀 Exportar Datos")
             </button>
             <button class="btn-secondary" @onclick="@(() => Navigation.NavigateTo("/"))">
                 ⬅️ Volver al Dashboard
@@ -145,55 +146,40 @@
 </div>
 
 @code {
-    private string _format = "Excel";
-    private string _fileName = "AuditHistory_Export";
-    private string _outputPath = string.Empty;
-    private bool _includeHeaders = true;
-    private bool _includeMetadata = true;
-    private bool _compressFile = false;
-    
-    private bool _isExporting = false;
-    private string _message = string.Empty;
-    private bool _isError = false;
-    private string _exportedFilePath = string.Empty;
-    private long _fileSize = 0;
-    
-    private int _totalRecords = 0; // Se obtiene de la extracción previa
-    private int _exportCount = 0;
-    private bool _canExport => !_isExporting && _totalRecords > 0 && !string.IsNullOrWhiteSpace(_fileName);
+    private readonly ExportPageViewModel _vm = new();
 
     protected override async Task OnInitializedAsync()
     {
-        _totalRecords = SessionState.Count;
+        _vm.TotalRecords = SessionState.Count;
         await Task.CompletedTask;
     }
 
     private async Task StartExport()
     {
-        _isExporting = true;
-        _message = string.Empty;
-        _isError = false;
-        _exportedFilePath = string.Empty;
+        _vm.IsExporting = true;
+        _vm.Message = string.Empty;
+        _vm.IsError = false;
+        _vm.ExportedFilePath = string.Empty;
 
         try
         {
             var records = SessionState.GetRecordsCopy();
-            _totalRecords = records.Count;
+            _vm.TotalRecords = records.Count;
 
             var configResult = ExportViewService.BuildConfiguration(new ExportInputModel
             {
-                Format = _format,
-                FileName = _fileName,
-                OutputPath = _outputPath,
-                CompressFile = _compressFile,
-                TotalRecords = _totalRecords
+                Format = _vm.Format,
+                FileName = _vm.FileName,
+                OutputPath = _vm.OutputPath,
+                CompressFile = _vm.CompressFile,
+                TotalRecords = _vm.TotalRecords
             });
 
             if (!configResult.Success || configResult.Configuration is null)
             {
-                _message = configResult.ErrorMessage ?? "❌ No fue posible construir la configuración de exportación.";
-                _isError = true;
-                _isExporting = false;
+                _vm.Message = configResult.ErrorMessage ?? "❌ No fue posible construir la configuración de exportación.";
+                _vm.IsError = true;
+                _vm.IsExporting = false;
                 return;
             }
 
@@ -209,27 +195,27 @@
 
             if (response.Success)
             {
-                _exportedFilePath = response.FilePath ?? string.Empty;
-                _fileSize = response.FileSize;
-                _exportCount++;
-                _message = $"✅ Exportación completada exitosamente!";
-                _isError = false;
+                _vm.ExportedFilePath = response.FilePath ?? string.Empty;
+                _vm.FileSize = response.FileSize;
+                _vm.ExportCount++;
+                _vm.Message = "✅ Exportación completada exitosamente!";
+                _vm.IsError = false;
             }
             else
             {
-                _message = $"❌ Error: {response.ErrorMessage}";
-                _isError = true;
+                _vm.Message = $"❌ Error: {response.ErrorMessage}";
+                _vm.IsError = true;
             }
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error durante la exportación");
-            _message = $"❌ Error inesperado: {ex.Message}";
-            _isError = true;
+            _vm.Message = $"❌ Error inesperado: {ex.Message}";
+            _vm.IsError = true;
         }
         finally
         {
-            _isExporting = false;
+            _vm.IsExporting = false;
         }
     }
 

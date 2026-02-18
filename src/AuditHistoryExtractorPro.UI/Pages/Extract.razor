@@ -4,6 +4,7 @@
 @using AuditHistoryExtractorPro.Domain.Entities
 @using AuditHistoryExtractorPro.Domain.Interfaces
 @using AuditHistoryExtractorPro.UI.Services
+@using AuditHistoryExtractorPro.UI.ViewModels
 @using MediatR
 @inject IMediator Mediator
 @inject ILogger<Extract> Logger
@@ -21,23 +22,23 @@
         
         <div class="form-group">
             <label>Nombre de la Entidad:</label>
-            <input type="text" @bind="_entityName" placeholder="account, contact, etc." class="form-input" />
+            <input type="text" @bind="_vm.EntityName" placeholder="account, contact, etc." class="form-input" />
         </div>
 
         <div class="form-group">
             <label>ID del Registro (opcional):</label>
-            <input type="text" @bind="_recordId" placeholder="00000000-0000-0000-0000-000000000000" class="form-input" />
+            <input type="text" @bind="_vm.RecordId" placeholder="00000000-0000-0000-0000-000000000000" class="form-input" />
         </div>
 
         <div class="form-row">
             <div class="form-group">
                 <label>Fecha Inicio:</label>
-                <input type="date" @bind="_startDate" class="form-input" />
+                <input type="date" @bind="_vm.StartDate" class="form-input" />
             </div>
             
             <div class="form-group">
                 <label>Fecha Fin:</label>
-                <input type="date" @bind="_endDate" class="form-input" />
+                <input type="date" @bind="_vm.EndDate" class="form-input" />
             </div>
         </div>
 
@@ -45,15 +46,15 @@
             <label>Operaciones específicas (opcional):</label>
             <div class="checkbox-group">
                 <label class="checkbox-label">
-                    <input type="checkbox" @bind="_includeCreate" />
+                    <input type="checkbox" @bind="_vm.IncludeCreate" />
                     <span>Crear</span>
                 </label>
                 <label class="checkbox-label">
-                    <input type="checkbox" @bind="_includeUpdate" />
+                    <input type="checkbox" @bind="_vm.IncludeUpdate" />
                     <span>Actualizar</span>
                 </label>
                 <label class="checkbox-label">
-                    <input type="checkbox" @bind="_includeDelete" />
+                    <input type="checkbox" @bind="_vm.IncludeDelete" />
                     <span>Eliminar</span>
                 </label>
             </div>
@@ -61,43 +62,43 @@
 
         <div class="form-group">
             <label>Límite de registros:</label>
-            <input type="number" @bind="_maxRecords" min="1" max="10000" class="form-input" />
+            <input type="number" @bind="_vm.MaxRecords" min="1" max="10000" class="form-input" />
         </div>
 
-        @if (_isExtracting)
+        @if (_vm.IsExtracting)
         {
             <div class="progress-container">
                 <div class="progress-bar">
-                    <div class="progress-fill" style="width: @(_progress)%"></div>
+                    <div class="progress-fill" style="width: @(_vm.Progress)%"></div>
                 </div>
                 <p style="text-align: center; color: #0078D4; margin-top: 10px;">
-                    Extrayendo... @(_progress)% completado
+                    Extrayendo... @(_vm.Progress)% completado
                 </p>
-                @if (!string.IsNullOrWhiteSpace(_statusMessage))
+                @if (!string.IsNullOrWhiteSpace(_vm.StatusMessage))
                 {
                     <p style="text-align: center; color: #605E5C; margin-top: 4px; font-size: 13px;">
-                        @_statusMessage
+                        @_vm.StatusMessage
                     </p>
                 }
             </div>
         }
 
-        @if (!string.IsNullOrEmpty(_message))
+        @if (!string.IsNullOrEmpty(_vm.Message))
         {
-            <div class="@(_isError ? "message-error" : "message-success")">
-                @_message
-                @if (_recordsExtracted > 0)
+            <div class="@(_vm.IsError ? "message-error" : "message-success")">
+                @_vm.Message
+                @if (_vm.RecordsExtracted > 0)
                 {
-                    <p><strong>Registros extraídos: @_recordsExtracted</strong></p>
+                    <p><strong>Registros extraídos: @_vm.RecordsExtracted</strong></p>
                 }
             </div>
         }
 
         <div class="button-group">
-            <button class="btn-primary" @onclick="StartExtraction" disabled="@_isExtracting">
-                @(_isExtracting ? "⏳ Extrayendo..." : "🚀 Iniciar Extracción")
+            <button class="btn-primary" @onclick="StartExtraction" disabled="@_vm.IsExtracting">
+                @(_vm.IsExtracting ? "⏳ Extrayendo..." : "🚀 Iniciar Extracción")
             </button>
-            @if (_isExtracting)
+            @if (_vm.IsExtracting)
             {
                 <button class="btn-secondary" @onclick="CancelExtraction">
                     ⛔ Cancelar
@@ -106,7 +107,7 @@
             <button class="btn-secondary" @onclick="@(() => Navigation.NavigateTo("/"))">
                 ⬅️ Volver al Dashboard
             </button>
-            @if (_recordsExtracted > 0 && !_isExtracting)
+            @if (_vm.RecordsExtracted > 0 && !_vm.IsExtracting)
             {
                 <button class="btn-success" @onclick="@(() => Navigation.NavigateTo("/export"))">
                     📊 Ir a Exportar →
@@ -117,53 +118,38 @@
 </div>
 
 @code {
-    private string _entityName = "account";
-    private string _recordId = string.Empty;
-    private DateTime? _startDate = DateTime.Now.AddMonths(-1);
-    private DateTime? _endDate = DateTime.Now;
-    private bool _includeCreate = true;
-    private bool _includeUpdate = true;
-    private bool _includeDelete = true;
-    private int _maxRecords = 1000;
-    
-    private bool _isExtracting = false;
-    private int _progress = 0;
-    private string _statusMessage = string.Empty;
-    private string _message = string.Empty;
-    private bool _isError = false;
-    private int _recordsExtracted = 0;
-    private CancellationTokenSource? _extractionCts;
+    private readonly ExtractPageViewModel _vm = new();
 
     private async Task StartExtraction()
     {
-        _isExtracting = true;
-        _progress = 0;
-        _statusMessage = string.Empty;
-        _message = string.Empty;
-        _isError = false;
-        _recordsExtracted = 0;
-        _extractionCts?.Dispose();
-        _extractionCts = new CancellationTokenSource();
+        _vm.IsExtracting = true;
+        _vm.Progress = 0;
+        _vm.StatusMessage = string.Empty;
+        _vm.Message = string.Empty;
+        _vm.IsError = false;
+        _vm.RecordsExtracted = 0;
+        _vm.ExtractionCts?.Dispose();
+        _vm.ExtractionCts = new CancellationTokenSource();
 
         try
         {
             var criteriaResult = ExtractViewService.BuildCriteria(new ExtractInputModel
             {
-                EntityName = _entityName,
-                RecordId = _recordId,
-                StartDate = _startDate,
-                EndDate = _endDate,
-                IncludeCreate = _includeCreate,
-                IncludeUpdate = _includeUpdate,
-                IncludeDelete = _includeDelete,
-                MaxRecords = _maxRecords
+                EntityName = _vm.EntityName,
+                RecordId = _vm.RecordId,
+                StartDate = _vm.StartDate,
+                EndDate = _vm.EndDate,
+                IncludeCreate = _vm.IncludeCreate,
+                IncludeUpdate = _vm.IncludeUpdate,
+                IncludeDelete = _vm.IncludeDelete,
+                MaxRecords = _vm.MaxRecords
             });
 
             if (!criteriaResult.Success || criteriaResult.Criteria is null)
             {
-                _message = criteriaResult.ErrorMessage ?? "❌ No fue posible construir los criterios de extracción.";
-                _isError = true;
-                _isExtracting = false;
+                _vm.Message = criteriaResult.ErrorMessage ?? "❌ No fue posible construir los criterios de extracción.";
+                _vm.IsError = true;
+                _vm.IsExtracting = false;
                 return;
             }
 
@@ -171,8 +157,8 @@
 
             var progress = new Progress<ExtractionProgress>(p =>
             {
-                _progress = (int)Math.Round(p.PercentComplete, MidpointRounding.AwayFromZero);
-                _statusMessage = string.IsNullOrWhiteSpace(p.Status)
+                _vm.Progress = (int)Math.Round(p.PercentComplete, MidpointRounding.AwayFromZero);
+                _vm.StatusMessage = string.IsNullOrWhiteSpace(p.Status)
                     ? $"Entidad actual: {p.CurrentEntity}"
                     : p.Status;
                 InvokeAsync(StateHasChanged);
@@ -185,47 +171,47 @@
                 Progress = progress
             };
 
-            var response = await Mediator.Send(command, _extractionCts.Token);
+            var response = await Mediator.Send(command, _vm.ExtractionCts.Token);
 
             if (response.Success)
             {
-                _recordsExtracted = response.Records.Count;
+                _vm.RecordsExtracted = response.Records.Count;
                 SessionState.SetRecords(response.Records);
-                _message = $"✅ Extracción completada exitosamente!";
-                _isError = false;
-                _progress = 100;
+                _vm.Message = "✅ Extracción completada exitosamente!";
+                _vm.IsError = false;
+                _vm.Progress = 100;
             }
             else
             {
-                _message = $"❌ Error: {response.ErrorMessage}";
-                _isError = true;
+                _vm.Message = $"❌ Error: {response.ErrorMessage}";
+                _vm.IsError = true;
             }
         }
         catch (OperationCanceledException)
         {
-            _message = "⚠️ Extracción cancelada por el usuario.";
-            _isError = true;
-            _statusMessage = string.Empty;
+            _vm.Message = "⚠️ Extracción cancelada por el usuario.";
+            _vm.IsError = true;
+            _vm.StatusMessage = string.Empty;
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error durante la extracción");
-            _message = $"❌ Error inesperado: {ex.Message}";
-            _isError = true;
+            _vm.Message = $"❌ Error inesperado: {ex.Message}";
+            _vm.IsError = true;
         }
         finally
         {
-            _isExtracting = false;
-            _extractionCts?.Dispose();
-            _extractionCts = null;
+            _vm.IsExtracting = false;
+            _vm.ExtractionCts?.Dispose();
+            _vm.ExtractionCts = null;
         }
     }
 
     private void CancelExtraction()
     {
-        if (_isExtracting)
+        if (_vm.IsExtracting)
         {
-            _extractionCts?.Cancel();
+            _vm.ExtractionCts?.Cancel();
         }
     }
 }

@@ -2,6 +2,7 @@
 @using AuditHistoryExtractorPro.Application.UseCases.CompareRecords
 @using AuditHistoryExtractorPro.Domain.Entities
 @using AuditHistoryExtractorPro.UI.Services
+@using AuditHistoryExtractorPro.UI.ViewModels
 @using MediatR
 @inject IMediator Mediator
 @inject ILogger<History> Logger
@@ -21,22 +22,22 @@
         <div class="filter-grid">
             <div class="form-group">
                 <label>Entidad:</label>
-                <input type="text" @bind="_entityFilter" placeholder="Todas las entidades" class="form-input" />
+                <input type="text" @bind="_vm.EntityFilter" placeholder="Todas las entidades" class="form-input" />
             </div>
 
             <div class="form-group">
                 <label>ID del Registro:</label>
-                <input type="text" @bind="_recordIdFilter" placeholder="Filtrar por ID" class="form-input" />
+                <input type="text" @bind="_vm.RecordIdFilter" placeholder="Filtrar por ID" class="form-input" />
             </div>
 
             <div class="form-group">
                 <label>Usuario:</label>
-                <input type="text" @bind="_userFilter" placeholder="Todos los usuarios" class="form-input" />
+                <input type="text" @bind="_vm.UserFilter" placeholder="Todos los usuarios" class="form-input" />
             </div>
 
             <div class="form-group">
                 <label>Operación:</label>
-                <select @bind="_operationFilter" class="form-input">
+                <select @bind="_vm.OperationFilter" class="form-input">
                     <option value="">Todas</option>
                     <option value="Create">Crear</option>
                     <option value="Update">Actualizar</option>
@@ -46,20 +47,20 @@
 
             <div class="form-group">
                 <label>Fecha Desde:</label>
-                <input type="date" @bind="_dateFrom" class="form-input" />
+                <input type="date" @bind="_vm.DateFrom" class="form-input" />
             </div>
 
             <div class="form-group">
                 <label>Fecha Hasta:</label>
-                <input type="date" @bind="_dateTo" class="form-input" />
+                <input type="date" @bind="_vm.DateTo" class="form-input" />
             </div>
         </div>
 
         <div class="button-group">
-            <button class="btn-primary" @onclick="ApplyFilters" disabled="@_isLoading">
+            <button class="btn-primary" @onclick="ApplyFilters" disabled="@_vm.IsLoading">
                 🔍 Aplicar Filtros
             </button>
-            <button class="btn-secondary" @onclick="ClearFilters" disabled="@_isLoading">
+            <button class="btn-secondary" @onclick="ClearFilters" disabled="@_vm.IsLoading">
                 🔄 Limpiar
             </button>
         </div>
@@ -67,26 +68,26 @@
 
     <!-- Resultados -->
     <div class="results-section">
-        @if (!string.IsNullOrWhiteSpace(_message))
+        @if (!string.IsNullOrWhiteSpace(_vm.Message))
         {
-            <div class="@(_isError ? "message-error" : "message-info")">
-                @_message
+            <div class="@(_vm.IsError ? "message-error" : "message-info")">
+                @_vm.Message
             </div>
         }
 
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
             <h2 style="color: #0078D4; margin: 0;">📊 Registros de Auditoría</h2>
-            <span style="color: #605E5C; font-weight: 600;">@_filteredRecords.Count registros encontrados</span>
+            <span style="color: #605E5C; font-weight: 600;">@_vm.FilteredRecords.Count registros encontrados</span>
         </div>
 
-        @if (_isLoading)
+        @if (_vm.IsLoading)
         {
             <div class="loading-container">
                 <div class="spinner"></div>
                 <p style="color: #0078D4; margin-top: 15px;">Cargando registros...</p>
             </div>
         }
-        else if (_filteredRecords.Any())
+        else if (_vm.FilteredRecords.Any())
         {
             <div class="table-container">
                 <table class="history-table">
@@ -101,7 +102,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var record in _pagedRecords)
+                        @foreach (var record in _vm.PagedRecords)
                         {
                             <tr>
                                 <td>@record.CreatedOn.ToString("dd/MM/yyyy HH:mm:ss")</td>
@@ -128,13 +129,13 @@
 
             <!-- Paginación -->
             <div class="pagination">
-                <button class="page-btn" @onclick="PreviousPage" disabled="@(_currentPage == 1)">
+                <button class="page-btn" @onclick="PreviousPage" disabled="@(_vm.CurrentPage == 1)">
                     ← Anterior
                 </button>
                 <span style="color: #605E5C; font-weight: 600;">
-                    Página @_currentPage de @_totalPages
+                    Página @_vm.CurrentPage de @_vm.TotalPages
                 </span>
-                <button class="page-btn" @onclick="NextPage" disabled="@(_currentPage >= _totalPages)">
+                <button class="page-btn" @onclick="NextPage" disabled="@(_vm.CurrentPage >= _vm.TotalPages)">
                     Siguiente →
                 </button>
             </div>
@@ -157,19 +158,19 @@
         <h3 style="color: #0078D4; margin-bottom: 20px;">📈 Estadísticas</h3>
         <div class="stats-grid">
             <div class="stat-card" style="border-left: 4px solid #107C10;">
-                <div class="stat-number">@_stats.TotalCreates</div>
+                <div class="stat-number">@_vm.Stats.TotalCreates</div>
                 <div class="stat-label">✅ Creaciones</div>
             </div>
             <div class="stat-card" style="border-left: 4px solid #0078D4;">
-                <div class="stat-number">@_stats.TotalUpdates</div>
+                <div class="stat-number">@_vm.Stats.TotalUpdates</div>
                 <div class="stat-label">📝 Actualizaciones</div>
             </div>
             <div class="stat-card" style="border-left: 4px solid #E81123;">
-                <div class="stat-number">@_stats.TotalDeletes</div>
+                <div class="stat-number">@_vm.Stats.TotalDeletes</div>
                 <div class="stat-label">🗑️ Eliminaciones</div>
             </div>
             <div class="stat-card" style="border-left: 4px solid #5C2D91;">
-                <div class="stat-number">@_stats.UniqueEntities</div>
+                <div class="stat-number">@_vm.Stats.UniqueEntities</div>
                 <div class="stat-label">📦 Entidades Únicas</div>
             </div>
         </div>
@@ -177,24 +178,7 @@
 </div>
 
 @code {
-    private string _entityFilter = string.Empty;
-    private string _recordIdFilter = string.Empty;
-    private string _userFilter = string.Empty;
-    private string _operationFilter = string.Empty;
-    private DateTime? _dateFrom = DateTime.Now.AddDays(-30);
-    private DateTime? _dateTo = DateTime.Now;
-
-    private readonly List<AuditRecord> _allAuditRecords = new();
-    private List<AuditRecord> _filteredRecords = new();
-    private List<AuditRecord> _pagedRecords = new();
-    private bool _isLoading = false;
-    private int _currentPage = 1;
-    private int _totalPages = 1;
-    private const int _pageSize = 25;
-    private string _message = string.Empty;
-    private bool _isError = false;
-
-    private HistoryAuditStats _stats = new();
+    private readonly HistoryPageViewModel _vm = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -203,20 +187,20 @@
 
     private async Task LoadAuditData()
     {
-        _isLoading = true;
-        _message = string.Empty;
-        _isError = false;
+        _vm.IsLoading = true;
+        _vm.Message = string.Empty;
+        _vm.IsError = false;
 
         try
         {
             var records = SessionState.GetRecordsCopy();
-            _allAuditRecords.Clear();
-            _allAuditRecords.AddRange(records);
+            _vm.AllAuditRecords.Clear();
+            _vm.AllAuditRecords.AddRange(records);
             RefreshView(resetPage: true);
 
-            if (!_allAuditRecords.Any())
+            if (!_vm.AllAuditRecords.Any())
             {
-                _message = "ℹ️ No hay datos en sesión. Ejecuta una extracción para ver historial.";
+                _vm.Message = "ℹ️ No hay datos en sesión. Ejecuta una extracción para ver historial.";
             }
 
             await Task.CompletedTask;
@@ -224,57 +208,57 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error al cargar datos de auditoría");
-            _message = "❌ Ocurrió un error al cargar el historial.";
-            _isError = true;
+            _vm.Message = "❌ Ocurrió un error al cargar el historial.";
+            _vm.IsError = true;
         }
         finally
         {
-            _isLoading = false;
+            _vm.IsLoading = false;
         }
     }
 
     private async Task ApplyFilters()
     {
-        _isLoading = true;
-        _message = string.Empty;
-        _isError = false;
+        _vm.IsLoading = true;
+        _vm.Message = string.Empty;
+        _vm.IsError = false;
         
         try
         {
             RefreshView(resetPage: true);
 
-            if (_isError)
+            if (_vm.IsError)
             {
                 return;
             }
 
-            if (!_filteredRecords.Any())
+            if (!_vm.FilteredRecords.Any())
             {
-                _message = "ℹ️ No hay resultados para los filtros aplicados.";
+                _vm.Message = "ℹ️ No hay resultados para los filtros aplicados.";
             }
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error al aplicar filtros");
-            _message = "❌ Ocurrió un error al aplicar filtros.";
-            _isError = true;
+            _vm.Message = "❌ Ocurrió un error al aplicar filtros.";
+            _vm.IsError = true;
         }
         finally
         {
-            _isLoading = false;
+            _vm.IsLoading = false;
         }
     }
 
     private async Task ClearFilters()
     {
-        _entityFilter = string.Empty;
-        _recordIdFilter = string.Empty;
-        _userFilter = string.Empty;
-        _operationFilter = string.Empty;
-        _dateFrom = DateTime.Now.AddDays(-30);
-        _dateTo = DateTime.Now;
-        _message = string.Empty;
-        _isError = false;
+        _vm.EntityFilter = string.Empty;
+        _vm.RecordIdFilter = string.Empty;
+        _vm.UserFilter = string.Empty;
+        _vm.OperationFilter = string.Empty;
+        _vm.DateFrom = DateTime.Now.AddDays(-30);
+        _vm.DateTo = DateTime.Now;
+        _vm.Message = string.Empty;
+        _vm.IsError = false;
         RefreshView(resetPage: true);
         await Task.CompletedTask;
     }
@@ -287,18 +271,18 @@
 
     private void PreviousPage()
     {
-        if (_currentPage > 1)
+        if (_vm.CurrentPage > 1)
         {
-            _currentPage--;
+            _vm.CurrentPage--;
             RefreshView(resetPage: false);
         }
     }
 
     private void NextPage()
     {
-        if (_currentPage < _totalPages)
+        if (_vm.CurrentPage < _vm.TotalPages)
         {
-            _currentPage++;
+            _vm.CurrentPage++;
             RefreshView(resetPage: false);
         }
     }
@@ -315,36 +299,36 @@
     {
         return new HistoryFilter
         {
-            Entity = _entityFilter,
-            RecordId = _recordIdFilter,
-            User = _userFilter,
-            Operation = _operationFilter,
-            DateFrom = _dateFrom,
-            DateTo = _dateTo
+            Entity = _vm.EntityFilter,
+            RecordId = _vm.RecordIdFilter,
+            User = _vm.UserFilter,
+            Operation = _vm.OperationFilter,
+            DateFrom = _vm.DateFrom,
+            DateTo = _vm.DateTo
         };
     }
 
     private void RefreshView(bool resetPage)
     {
-        var requestedPage = resetPage ? 1 : _currentPage;
+        var requestedPage = resetPage ? 1 : _vm.CurrentPage;
         var result = HistoryViewService.BuildView(
-            _allAuditRecords,
+            _vm.AllAuditRecords,
             CreateFilter(),
             requestedPage,
-            _pageSize);
+            _vm.PageSize);
 
         if (!string.IsNullOrWhiteSpace(result.ValidationError))
         {
-            _isError = true;
-            _message = result.ValidationError;
+            _vm.IsError = true;
+            _vm.Message = result.ValidationError;
             return;
         }
 
-        _filteredRecords = result.FilteredRecords;
-        _pagedRecords = result.PagedRecords;
-        _stats = result.Stats;
-        _currentPage = result.CurrentPage;
-        _totalPages = result.TotalPages;
+        _vm.FilteredRecords = result.FilteredRecords;
+        _vm.PagedRecords = result.PagedRecords;
+        _vm.Stats = result.Stats;
+        _vm.CurrentPage = result.CurrentPage;
+        _vm.TotalPages = result.TotalPages;
     }
 }
 
