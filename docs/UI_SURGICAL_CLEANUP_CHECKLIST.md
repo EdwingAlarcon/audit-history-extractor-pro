@@ -44,7 +44,7 @@ Estado Fase 2:
 - [x] Revisar `Pages/Extract.razor` (validaciones y estados de carga).
 - [x] Revisar `Pages/Export.razor` (habilitado/deshabilitado según datos).
 - [x] Revisar `Pages/History.razor` (render y paginación).
-- [ ] Mantener contratos de servicios sin cambios en esta fase.
+- [x] Mantener contratos de servicios sin cambios en esta fase.
 
 Estado Fase 3 (avance actual):
 - `Pages/Extract.razor` robustecido con:
@@ -64,6 +64,9 @@ Estado Fase 3 (avance actual):
 	- validaciones de filtros (rango de fechas y GUID),
 	- mensajes de estado/error en la vista,
 	- deshabilitado de acciones de filtro durante carga.
+
+Estado Fase 4 (inicio controlado):
+- Integración mínima de flujo UI agregada con estado de sesión en memoria (`Extract` publica registros, `History` y `Export` consumen), sin cambios en contratos `Domain/Application`.
 
 ## Fase 4 — Integración progresiva con lógica
 - [ ] Alinear cada vista con un caso de uso concreto de `Application`.

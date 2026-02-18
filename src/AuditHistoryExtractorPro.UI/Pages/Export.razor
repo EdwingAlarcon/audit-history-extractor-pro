@@ -2,10 +2,12 @@
 @using AuditHistoryExtractorPro.Application.UseCases.ExportAudit
 @using AuditHistoryExtractorPro.Domain.ValueObjects
 @using AuditHistoryExtractorPro.Domain.Entities
+@using AuditHistoryExtractorPro.UI.Services
 @using MediatR
 @inject IMediator Mediator
 @inject ILogger<Export> Logger
 @inject NavigationManager Navigation
+@inject AuditSessionState SessionState
 
 <PageTitle>Exportar - Audit History Extractor Pro</PageTitle>
 
@@ -161,7 +163,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // TODO: Cargar el número de registros extraídos previamente desde el servicio
+        _totalRecords = SessionState.Count;
         await Task.CompletedTask;
     }
 
@@ -218,8 +220,16 @@
                 IncludeTimestamp = true
             };
 
-            // TODO: Obtener los registros reales de la extracción previa
-            var records = new List<AuditRecord>(_totalRecords);
+            var records = SessionState.GetRecordsCopy();
+            _totalRecords = records.Count;
+
+            if (_totalRecords <= 0)
+            {
+                _message = "⚠️ No hay registros para exportar. Realiza una extracción primero.";
+                _isError = true;
+                _isExporting = false;
+                return;
+            }
 
             var command = new ExportAuditCommand
             {

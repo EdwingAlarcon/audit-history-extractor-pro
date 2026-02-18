@@ -4,6 +4,7 @@ using AuditHistoryExtractorPro.Infrastructure.Services;
 using AuditHistoryExtractorPro.Infrastructure.Services.Export;
 using AuditHistoryExtractorPro.Infrastructure.Repositories;
 using AuditHistoryExtractorPro.Infrastructure.Authentication;
+using AuditHistoryExtractorPro.UI.Services;
 using MudBlazor.Services;
 using Serilog;
 
@@ -26,6 +27,7 @@ builder.Services.AddMemoryCache();
 builder.Services.AddSingleton(typeof(AuditHistoryExtractorPro.Domain.Interfaces.ILogger<>), typeof(SerilogAdapter<>));
 builder.Services.AddSingleton<ICacheService, MemoryCacheService>();
 builder.Services.AddSingleton<IAuditProcessor, AuditProcessor>();
+builder.Services.AddScoped<AuditSessionState>();
 
 // Configuración de Dataverse desde appsettings.json
 var dataverseConfig = builder.Configuration.GetSection("Dataverse");

@@ -3,10 +3,12 @@
 @using AuditHistoryExtractorPro.Domain.ValueObjects
 @using AuditHistoryExtractorPro.Domain.Entities
 @using AuditHistoryExtractorPro.Domain.Interfaces
+@using AuditHistoryExtractorPro.UI.Services
 @using MediatR
 @inject IMediator Mediator
 @inject ILogger<Extract> Logger
 @inject NavigationManager Navigation
+@inject AuditSessionState SessionState
 
 <PageTitle>Nueva Extracción - Audit History Extractor Pro</PageTitle>
 
@@ -220,6 +222,7 @@
             if (response.Success)
             {
                 _recordsExtracted = response.Records.Count;
+                SessionState.SetRecords(response.Records);
                 _message = $"✅ Extracción completada exitosamente!";
                 _isError = false;
                 _progress = 100;

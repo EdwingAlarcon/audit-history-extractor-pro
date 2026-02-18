@@ -1,10 +1,12 @@
 @page "/history"
 @using AuditHistoryExtractorPro.Application.UseCases.CompareRecords
 @using AuditHistoryExtractorPro.Domain.Entities
+@using AuditHistoryExtractorPro.UI.Services
 @using MediatR
 @inject IMediator Mediator
 @inject ILogger<History> Logger
 @inject NavigationManager Navigation
+@inject AuditSessionState SessionState
 
 <PageTitle>Historial - Audit History Extractor Pro</PageTitle>
 
@@ -206,10 +208,15 @@
 
         try
         {
-            // TODO: Implementar carga real de datos desde el servicio
-            // Por ahora, inicializamos con listas vacías
+            var records = SessionState.GetRecordsCopy();
             _allAuditRecords.Clear();
+            _allAuditRecords.AddRange(records);
             RebuildView(resetPage: true);
+
+            if (!_allAuditRecords.Any())
+            {
+                _message = "ℹ️ No hay datos en sesión. Ejecuta una extracción para ver historial.";
+            }
 
             await Task.CompletedTask;
         }
