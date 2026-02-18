@@ -85,13 +85,14 @@ Estado Fase 4 (avance):
 - [x] `dotnet build AuditHistoryExtractorPro.sln`.
 - [x] `dotnet test`.
 - [x] Prueba manual end-to-end UI: Extract -> History -> Export.
-- [ ] Actualizar changelog/README con cambios visibles.
+- [x] Actualizar changelog/README con cambios visibles.
 - [ ] Abrir PR hacia `main` con checklist marcado.
 
 Estado Fase 5 (avance):
 - Build de solución completado en verde.
 - Suite de tests completada en verde (`passed=30`, `failed=0`).
 - Verificación operativa de flujo UI realizada con app en ejecución (`/extract`, `/history`, `/export` => `200`).
+- Documentación actualizada para handoff de merge (`README`, `CHANGELOG.md`, resumen de PR en `docs/PR_SUMMARY_UI_SURGICAL_CLEANUP.md`).
 
 ## Convención de commits sugerida
 - `ui: fix startup config bootstrap`

@@ -121,6 +121,18 @@ dataverse:
 
 ## 📖 Uso
 
+## 🆕 Novedades Recientes (2026-02-18)
+
+- Estabilización integral de la UI (`Extract`, `History`, `Export`) con validaciones y estados más robustos.
+- Separación de responsabilidades en capa de presentación mediante servicios, coordinadores y `PageViewModel` por pantalla.
+- Flujo integrado en sesión UI: `Extract -> History -> Export`.
+- Hardening validado con build + tests + smoke de rutas principales.
+
+Documentación relacionada:
+- Checklist de ejecución: [docs/UI_SURGICAL_CLEANUP_CHECKLIST.md](./docs/UI_SURGICAL_CLEANUP_CHECKLIST.md)
+- Resumen listo para PR: [docs/PR_SUMMARY_UI_SURGICAL_CLEANUP.md](./docs/PR_SUMMARY_UI_SURGICAL_CLEANUP.md)
+- Registro de cambios: [CHANGELOG.md](./CHANGELOG.md)
+
 ### Interfaz de Línea de Comandos (CLI)
 
 ```bash
