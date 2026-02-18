@@ -636,31 +636,16 @@
     {
         var authProvider = BuildAuthenticationProvider();
 
-        if (_authType == "oauth2" && string.Equals(_oauthFlow, "interactive", StringComparison.OrdinalIgnoreCase))
+        if (!Uri.TryCreate(AuthConfig.EnvironmentUrl, UriKind.Absolute, out var dataverseUri))
         {
-            var interactiveConnectionString = BuildInteractiveConnectionString();
-            var interactiveClient = new DataverseServiceClient(interactiveConnectionString);
-
-            if (!interactiveClient.IsReady)
-            {
-                throw new InvalidOperationException(
-                    string.IsNullOrWhiteSpace(interactiveClient.LastError)
-                        ? "No se pudo completar login interactivo."
-                        : interactiveClient.LastError);
-            }
-
-            return interactiveClient;
+            throw new InvalidOperationException("La URL de Dataverse no es válida.");
         }
 
-        var token = await authProvider.GetAccessTokenAsync(cancellationToken);
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            throw new InvalidOperationException("No se obtuvo un token válido para Dataverse.");
-        }
-
-        var connectionString =
-            $"AuthType=OAuth;Url={AuthConfig.EnvironmentUrl};AccessToken={token};RequireNewInstance=True";
-        var client = new DataverseServiceClient(connectionString);
+        var client = new DataverseServiceClient(
+            dataverseUri,
+            async _ => await authProvider.GetAccessTokenAsync(cancellationToken),
+            useUniqueInstance: true,
+            logger: null);
 
         if (!client.IsReady)
         {
@@ -671,15 +656,6 @@
         }
 
         return client;
-    }
-
-    private string BuildInteractiveConnectionString()
-    {
-        var appId = string.IsNullOrWhiteSpace(AuthConfig.ClientId)
-            ? OAuth2AuthenticationProvider.DefaultPublicClientAppId
-            : AuthConfig.ClientId;
-
-        return $"AuthType=OAuth;Url={AuthConfig.EnvironmentUrl};AppId={appId};RedirectUri={OAuth2AuthenticationProvider.DefaultPublicClientRedirectUri};LoginPrompt=Auto;RequireNewInstance=True;";
     }
 
     private IAuthenticationProvider BuildAuthenticationProvider()

@@ -2,8 +2,10 @@ using AuditHistoryExtractorPro.Domain.Interfaces;
 using AuditHistoryExtractorPro.Domain.ValueObjects;
 using Azure.Identity;
 using Microsoft.Identity.Client;
+using Microsoft.Identity.Client.Broker;
 using Microsoft.Extensions.DependencyInjection;
 using System.Security.Cryptography.X509Certificates;
+using System.Runtime.InteropServices;
 
 namespace AuditHistoryExtractorPro.Infrastructure.Authentication;
 
@@ -21,6 +23,9 @@ public class OAuth2AuthenticationProvider : IAuthenticationProvider
     private readonly ILogger<OAuth2AuthenticationProvider> _logger;
     private readonly Action<DeviceCodeChallengeInfo>? _deviceCodeCallback;
     private IPublicClientApplication? _clientApp;
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
 
     public OAuth2AuthenticationProvider(
         AuthenticationConfiguration config,
@@ -47,6 +52,10 @@ public class OAuth2AuthenticationProvider : IAuthenticationProvider
             .Create(clientId)
             .WithAuthority(AzureCloudInstance.AzurePublic, tenantId)
             .WithRedirectUri(DefaultPublicClientRedirectUri)
+            .WithBroker(new BrokerOptions(BrokerOptions.OperatingSystems.Windows))
+            .WithParentActivityOrWindow(() => RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                ? GetForegroundWindow()
+                : IntPtr.Zero)
             .Build();
     }
 
@@ -87,7 +96,7 @@ public class OAuth2AuthenticationProvider : IAuthenticationProvider
             // Si no hay token válido, solicitar con Device Code (compatible con Blazor Server)
             if (result == null)
             {
-                if (UseDeviceCodeFlow())
+                if (UseDeviceCodeFlow() && !RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
                 {
                     result = await _clientApp.AcquireTokenWithDeviceCode(scopes, deviceCodeResult =>
                     {
@@ -104,6 +113,10 @@ public class OAuth2AuthenticationProvider : IAuthenticationProvider
                 else
                 {
                     result = await _clientApp.AcquireTokenInteractive(scopes)
+                        .WithPrompt(Prompt.SelectAccount)
+                        .WithParentActivityOrWindow(RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                            ? GetForegroundWindow()
+                            : IntPtr.Zero)
                         .ExecuteAsync(cancellationToken);
                 }
             }
