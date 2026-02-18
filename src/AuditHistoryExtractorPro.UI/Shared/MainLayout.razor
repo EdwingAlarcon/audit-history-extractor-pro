@@ -76,10 +76,10 @@
 @code {
     private bool _drawerOpen = true;
 
-    private const string AppBarStyle = "background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);";
-    private const string DrawerStyle = "position: fixed; left: 0; top: 64px; width: 240px; height: calc(100% - 64px); z-index: 1200; background-color: #fafafa; overflow-y: auto;";
-    private const string DrawerHeaderStyle = "background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;";
-    private const string DrawerFooterStyle = "background-color: #e3f2fd; border-radius: 8px;";
+    private const string AppBarStyle = "background: #FFFFFF; color: #323130; border-bottom: 3px solid transparent; border-image: linear-gradient(90deg,#F25022 0% 25%,#7FBA00 25% 50%,#00A4EF 50% 75%,#FFB900 75% 100%) 1;";
+    private const string DrawerStyle = "position: fixed; left: 0; top: 64px; width: 240px; height: calc(100% - 64px); z-index: 1200; background-color: #FFFFFF; border-right: 1px solid #E1DFDD; overflow-y: auto;";
+    private const string DrawerHeaderStyle = "background: #F3F2F1; color: #323130;";
+    private const string DrawerFooterStyle = "background-color: #F3F2F1; border-radius: 8px;";
     private const string NavLinkStyle = "border-radius: 8px; margin-bottom: 4px; font-weight: 500;";
     private string MainContentStyle => _drawerOpen
         ? "margin-left: 240px; background-color: #f5f7fa; transition: margin-left 0.3s;"
@@ -89,19 +89,19 @@
     {
         Palette = new PaletteLight()
         {
-            Primary = "#667eea",
-            Secondary = "#f093fb",
-            Info = "#4facfe",
-            Success = "#00d4aa",
-            Warning = "#ffd93d",
-            Error = "#f5576c",
-            AppbarBackground = "#667eea",
+            Primary = "#00A4EF",
+            Secondary = "#737373",
+            Info = "#00A4EF",
+            Success = "#7FBA00",
+            Warning = "#FFB900",
+            Error = "#F25022",
+            AppbarBackground = "#FFFFFF",
         },
         Typography = new Typography()
         {
             Default = new Default()
             {
-                FontFamily = new[] { "Inter", "Roboto", "Helvetica", "Arial", "sans-serif" }
+                FontFamily = new[] { "Segoe UI", "Roboto", "Helvetica", "Arial", "sans-serif" }
             }
         }
     };
