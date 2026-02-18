@@ -109,6 +109,7 @@
                     <p>
                         <strong>💾 Tamaño:</strong> @FormatFileSize(_vm.FileSize)
                     </p>
+                    <OutputFileActions OnOpenFile="OpenExportedFile" OnOpenFolder="OpenExportedFolder" />
                 }
             </div>
         }
@@ -208,6 +209,69 @@
             len = len / 1024;
         }
         return $"{len:0.##} {sizes[order]}";
+    }
+
+    private void OpenExportedFile()
+    {
+        if (string.IsNullOrWhiteSpace(_vm.ExportedFilePath) || !File.Exists(_vm.ExportedFilePath))
+        {
+            _vm.Message = "⚠️ No se encontró el archivo exportado.";
+            _vm.IsError = true;
+            return;
+        }
+
+        try
+        {
+            var startInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = _vm.ExportedFilePath,
+                UseShellExecute = true
+            };
+
+            System.Diagnostics.Process.Start(startInfo);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "No fue posible abrir el archivo exportado");
+            _vm.Message = "❌ No fue posible abrir el archivo exportado.";
+            _vm.IsError = true;
+        }
+    }
+
+    private void OpenExportedFolder()
+    {
+        if (string.IsNullOrWhiteSpace(_vm.ExportedFilePath))
+        {
+            _vm.Message = "⚠️ No hay ruta de archivo exportado.";
+            _vm.IsError = true;
+            return;
+        }
+
+        var directory = Path.GetDirectoryName(_vm.ExportedFilePath);
+        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+        {
+            _vm.Message = "⚠️ No se encontró la carpeta del archivo exportado.";
+            _vm.IsError = true;
+            return;
+        }
+
+        try
+        {
+            var startInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = directory,
+                UseShellExecute = true
+            };
+
+            System.Diagnostics.Process.Start(startInfo);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "No fue posible abrir la carpeta de exportación");
+            _vm.Message = "❌ No fue posible abrir la carpeta de exportación.";
+            _vm.IsError = true;
+        }
     }
 }
 

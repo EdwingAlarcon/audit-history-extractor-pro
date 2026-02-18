@@ -131,7 +131,8 @@ Client Secret:      tu-secreto-aqui
 2. Seleccionar entidad (account, contact, etc.)
 3. Elegir rango de fechas
 4. Click "Extraer"
-5. Ver progreso en tiempo real
+5. Ver progreso en tiempo real (paginado)
+6. Al finalizar, usar "Abrir archivo" o "Abrir carpeta"
 ```
 
 ### 3️⃣ Exportar Resultados
@@ -141,8 +142,14 @@ Client Secret:      tu-secreto-aqui
 2. Seleccionar formato (Excel, CSV, JSON)
 3. Elegir destino
 4. Click "Exportar"
-5. Descargar archivo
+5. Al finalizar, usar "Abrir archivo" o "Abrir carpeta"
 ```
+
+### ℹ️ Nota sobre extracción en streaming
+
+- La extracción ahora escribe el CSV incrementalmente (por páginas) para evitar consumo alto de RAM.
+- El archivo se genera durante el proceso, sin esperar a construir listas gigantes en memoria.
+- En el mensaje de éxito verás la ruta exacta del CSV generado.
 
 ---
 
@@ -245,4 +252,4 @@ dotnet dev-certs https --trust
 
 **¡Listo! Ya puedes empezar a extraer auditorías de Dataverse** 🎉
 
-**Última actualización:** 17 de febrero de 2026
+**Última actualización:** 18 de febrero de 2026

@@ -57,14 +57,16 @@ public class ExtractExecutionResult
     public bool Success { get; init; }
     public int RecordsExtracted { get; init; }
     public string Message { get; init; } = string.Empty;
+    public string OutputFilePath { get; init; } = string.Empty;
 
-    public static ExtractExecutionResult Ok(int recordsExtracted, string message)
+    public static ExtractExecutionResult Ok(int recordsExtracted, string message, string? outputFilePath = null)
     {
         return new ExtractExecutionResult
         {
             Success = true,
             RecordsExtracted = recordsExtracted,
-            Message = message
+            Message = message,
+            OutputFilePath = outputFilePath ?? string.Empty
         };
     }
 

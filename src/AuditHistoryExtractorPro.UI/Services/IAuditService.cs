@@ -16,6 +16,7 @@ public interface IAuditService
 
     Task<ExtractExecutionResult> ExtractAuditHistoryAsync(
         ExtractInputModel input,
-        IProgress<ExtractionProgress>? progress = null,
+        string outputFilePath,
+        IProgress<string>? progress = null,
         CancellationToken cancellationToken = default);
 }
