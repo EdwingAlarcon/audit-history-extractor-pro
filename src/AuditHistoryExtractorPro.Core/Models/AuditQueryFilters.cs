@@ -11,6 +11,7 @@ public class AuditQueryFilters
     public OperationFilter? SelectedOperation { get; init; }
     public IReadOnlyList<int> SelectedOperations { get; init; } = Array.Empty<int>();
     public IReadOnlyList<int> SelectedActions { get; init; } = Array.Empty<int>();
+    public IReadOnlyList<string> SelectedAttributes { get; init; } = Array.Empty<string>();
     public string RecordId { get; init; } = string.Empty;
     public DateTime? StartDate { get; init; }
     public DateTime? EndDate { get; init; }

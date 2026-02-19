@@ -19,6 +19,7 @@ public class QueryBuilderService
                 "createdon",
                 "operation",
                 "action",
+                "attributemask",
                 "objectid",
                 "objecttypecode",
                 "userid",
@@ -101,6 +102,7 @@ public class QueryBuilderService
         sb.Append("    <attribute name='createdon'/>\n");
         sb.Append("    <attribute name='operation'/>\n");
         sb.Append("    <attribute name='action'/>\n");
+        sb.Append("    <attribute name='attributemask'/>\n");
         sb.Append("    <attribute name='objectid'/>\n");
         sb.Append("    <attribute name='objecttypecode'/>\n");
         sb.Append("    <attribute name='userid'/>\n");

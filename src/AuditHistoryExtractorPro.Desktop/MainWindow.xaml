@@ -161,6 +161,21 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
+
+                                <TextBlock Text="Atributos de Interés" Style="{StaticResource SectionTitleStyle}" Margin="0,8,0,6" />
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                    <Button Content="Seleccionar todo" Command="{Binding SelectAllAttributesCommand}" Margin="0,0,6,0" />
+                                    <Button Content="Deseleccionar todo" Command="{Binding DeselectAllAttributesCommand}" />
+                                </StackPanel>
+                                <ScrollViewer Height="140" VerticalScrollBarVisibility="Auto">
+                                    <ItemsControl ItemsSource="{Binding AttributesList}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <CheckBox Content="{Binding Label}" IsChecked="{Binding IsSelected, Mode=TwoWay}" Margin="0,0,0,2" />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
                             </StackPanel>
                         </GroupBox>
 

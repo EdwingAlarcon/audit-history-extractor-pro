@@ -21,6 +21,7 @@ public class ExtractionRequest
     public OperationFilter? SelectedOperation { get; init; }
     public IReadOnlyList<int> SelectedOperations { get; init; } = Array.Empty<int>();
     public IReadOnlyList<int> SelectedActions { get; init; } = Array.Empty<int>();
+    public IReadOnlyList<string> SelectedAttributes { get; init; } = Array.Empty<string>();
 
     public ExtractionCriteria ToCriteria()
     {

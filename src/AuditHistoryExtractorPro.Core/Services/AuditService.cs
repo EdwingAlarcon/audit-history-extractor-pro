@@ -7,6 +7,8 @@ using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Messages;
 using Microsoft.Xrm.Sdk.Metadata;
 using Microsoft.Xrm.Sdk.Query;
+using System.Globalization;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
 namespace AuditHistoryExtractorPro.Core.Services;
@@ -18,10 +20,15 @@ public class AuditService : IAuditService
     private readonly QueryBuilderService _queryBuilderService;
     private readonly IExcelExportService _excelExportService;
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
+    private readonly SemaphoreSlim _nameResolutionLock = new(1, 1);
     private DataverseServiceClient? _serviceClient;
     private IAuthenticationProvider? _authenticationProvider;
     private AuthenticationConfiguration? _authenticationConfiguration;
     private Dictionary<string, Dictionary<int, string>> _optionSetCache = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<int, string> _attributeByColumnNumber = new();
+    private Dictionary<string, string> _lookupTargetByAttribute = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, string> _primaryNameAttributeCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _nameResolutionCache = new(StringComparer.OrdinalIgnoreCase);
 
     public bool IsConnected { get; private set; }
     public string OrganizationName { get; private set; } = string.Empty;
@@ -74,6 +81,10 @@ public class AuditService : IAuditService
                 : _serviceClient.ConnectedOrgFriendlyName;
 
             _optionSetCache.Clear();
+            _attributeByColumnNumber.Clear();
+            _lookupTargetByAttribute.Clear();
+            _primaryNameAttributeCache.Clear();
+            _nameResolutionCache.Clear();
         }
         catch
         {
@@ -146,7 +157,7 @@ public class AuditService : IAuditService
                 filePath = Path.ChangeExtension(filePath, ".xlsx");
             }
 
-            _optionSetCache = await LoadOptionSetMetadataAsync(request.EntityName, cancellationToken);
+            await LoadEntityMetadataContextAsync(request.EntityName, cancellationToken);
 
             progress?.Report("Iniciando extracción de auditoría...");
 
@@ -193,10 +204,13 @@ public class AuditService : IAuditService
             SelectedOperation = request.SelectedOperation,
             SelectedOperations = request.SelectedOperations,
             SelectedActions = request.SelectedActions,
+            SelectedAttributes = request.SelectedAttributes,
             RecordId = request.RecordId,
             StartDate = request.StartDate,
             EndDate = request.EndDate
         };
+
+        var selectedAttributes = new HashSet<string>(request.SelectedAttributes, StringComparer.OrdinalIgnoreCase);
 
         while (moreRecords && !cancellationToken.IsCancellationRequested && totalWritten < request.MaxRecords)
         {
@@ -218,9 +232,20 @@ public class AuditService : IAuditService
             foreach (var entity in response.Entities)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+
+                var changeData = entity.GetAttributeValue<string>("changedata") ?? string.Empty;
+                var attributeMask = entity.GetAttributeValue<string>("attributemask") ?? string.Empty;
+                var change = ParseChangeData(changeData);
+
+                if (!ShouldIncludeRecord(attributeMask, change.field, selectedAttributes))
+                {
+                    continue;
+                }
+
+                var row = await BuildExportRowAsync(entity, change, cancellationToken);
                 totalWritten++;
                 updateCount(totalWritten);
-                yield return BuildExportRow(entity);
+                yield return row;
 
                 if (totalWritten >= request.MaxRecords)
                 {
@@ -241,7 +266,10 @@ public class AuditService : IAuditService
         }
     }
 
-    private AuditExportRow BuildExportRow(Entity entity)
+    private async Task<AuditExportRow> BuildExportRowAsync(
+        Entity entity,
+        (string field, string oldValue, string newValue) parsedChange,
+        CancellationToken cancellationToken)
     {
         var auditId = entity.GetAttributeValue<Guid>("auditid");
         var createdOn = entity.GetAttributeValue<DateTime>("createdon");
@@ -250,9 +278,9 @@ public class AuditService : IAuditService
         var actionCode = entity.GetAttributeValue<OptionSetValue>("action")?.Value ?? 0;
         var userRef = entity.GetAttributeValue<EntityReference>("userid");
         var transactionId = entity.GetAttributeValue<Guid?>("transactionid");
-        var changeData = entity.GetAttributeValue<string>("changedata") ?? string.Empty;
-
-        var (fieldName, oldValue, newValue) = ParseChangeData(changeData);
+        var fieldName = parsedChange.field;
+        var oldValue = await ResolveNameIfReferenceAsync(parsedChange.oldValue, fieldName, cancellationToken);
+        var newValue = await ResolveNameIfReferenceAsync(parsedChange.newValue, fieldName, cancellationToken);
 
         return new AuditExportRow
         {
@@ -312,27 +340,49 @@ public class AuditService : IAuditService
         }
     }
 
-    private async Task<Dictionary<string, Dictionary<int, string>>> LoadOptionSetMetadataAsync(
+    private async Task LoadEntityMetadataContextAsync(
         string entityName,
         CancellationToken cancellationToken)
     {
         if (_serviceClient is null)
         {
-            return new Dictionary<string, Dictionary<int, string>>(StringComparer.OrdinalIgnoreCase);
+            _optionSetCache = new Dictionary<string, Dictionary<int, string>>(StringComparer.OrdinalIgnoreCase);
+            _attributeByColumnNumber = new Dictionary<int, string>();
+            _lookupTargetByAttribute = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            return;
         }
 
         var request = new RetrieveEntityRequest
         {
             LogicalName = entityName,
-            EntityFilters = EntityFilters.Attributes,
+            EntityFilters = EntityFilters.Attributes | EntityFilters.Entity,
             RetrieveAsIfPublished = true
         };
 
         var response = (RetrieveEntityResponse)await _serviceClient.ExecuteAsync(request, cancellationToken);
         var cache = new Dictionary<string, Dictionary<int, string>>(StringComparer.OrdinalIgnoreCase);
+        var attributeByColumnNumber = new Dictionary<int, string>();
+        var lookupTargets = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        if (!string.IsNullOrWhiteSpace(response.EntityMetadata.PrimaryNameAttribute))
+        {
+            _primaryNameAttributeCache[entityName] = response.EntityMetadata.PrimaryNameAttribute;
+        }
 
         foreach (var attribute in response.EntityMetadata.Attributes)
         {
+            if (attribute.ColumnNumber.HasValue && !string.IsNullOrWhiteSpace(attribute.LogicalName))
+            {
+                attributeByColumnNumber[attribute.ColumnNumber.Value] = attribute.LogicalName;
+            }
+
+            if (attribute is LookupAttributeMetadata lookupAttribute
+                && !string.IsNullOrWhiteSpace(attribute.LogicalName)
+                && lookupAttribute.Targets is { Length: > 0 })
+            {
+                lookupTargets[attribute.LogicalName] = lookupAttribute.Targets[0];
+            }
+
             if (attribute is not EnumAttributeMetadata enumAttribute)
             {
                 continue;
@@ -353,7 +403,178 @@ public class AuditService : IAuditService
             }
         }
 
-        return cache;
+        _optionSetCache = cache;
+        _attributeByColumnNumber = attributeByColumnNumber;
+        _lookupTargetByAttribute = lookupTargets;
+    }
+
+    private bool ShouldIncludeRecord(
+        string attributeMask,
+        string changedField,
+        HashSet<string> selectedAttributes)
+    {
+        if (selectedAttributes.Count == 0)
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(changedField) && selectedAttributes.Contains(changedField))
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(attributeMask))
+        {
+            return false;
+        }
+
+        var tokens = attributeMask.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var token in tokens)
+        {
+            if (!int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var columnNumber))
+            {
+                continue;
+            }
+
+            if (_attributeByColumnNumber.TryGetValue(columnNumber, out var logicalName)
+                && selectedAttributes.Contains(logicalName))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private async Task<string> ResolveNameIfReferenceAsync(string value, string fieldName, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        var guid = ExtractGuid(value);
+        if (!guid.HasValue)
+        {
+            return value;
+        }
+
+        var targetEntity = ResolveTargetEntity(fieldName);
+        if (string.IsNullOrWhiteSpace(targetEntity))
+        {
+            return value;
+        }
+
+        var resolvedName = await ResolveEntityPrimaryNameAsync(targetEntity, guid.Value, cancellationToken);
+        return string.IsNullOrWhiteSpace(resolvedName) ? value : resolvedName;
+    }
+
+    private string? ResolveTargetEntity(string fieldName)
+    {
+        if (_lookupTargetByAttribute.TryGetValue(fieldName, out var target))
+        {
+            return target;
+        }
+
+        return null;
+    }
+
+    private async Task<string?> ResolveEntityPrimaryNameAsync(string entityLogicalName, Guid id, CancellationToken cancellationToken)
+    {
+        if (_serviceClient is null || !_serviceClient.IsReady)
+        {
+            return null;
+        }
+
+        var cacheKey = $"{entityLogicalName}:{id:D}";
+        if (_nameResolutionCache.TryGetValue(cacheKey, out var cachedName))
+        {
+            return cachedName;
+        }
+
+        await _nameResolutionLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_nameResolutionCache.TryGetValue(cacheKey, out cachedName))
+            {
+                return cachedName;
+            }
+
+            var primaryNameAttribute = await GetPrimaryNameAttributeAsync(entityLogicalName, cancellationToken);
+            if (string.IsNullOrWhiteSpace(primaryNameAttribute))
+            {
+                return null;
+            }
+
+            var entity = await Task.Run(() => _serviceClient.Retrieve(entityLogicalName, id, new ColumnSet(primaryNameAttribute)), cancellationToken);
+            var resolvedName = entity.GetAttributeValue<string>(primaryNameAttribute);
+            if (!string.IsNullOrWhiteSpace(resolvedName))
+            {
+                _nameResolutionCache[cacheKey] = resolvedName;
+            }
+
+            return resolvedName;
+        }
+        catch
+        {
+            return null;
+        }
+        finally
+        {
+            _nameResolutionLock.Release();
+        }
+    }
+
+    private async Task<string?> GetPrimaryNameAttributeAsync(string entityLogicalName, CancellationToken cancellationToken)
+    {
+        if (_primaryNameAttributeCache.TryGetValue(entityLogicalName, out var cachedPrimaryName))
+        {
+            return cachedPrimaryName;
+        }
+
+        if (_serviceClient is null || !_serviceClient.IsReady)
+        {
+            return null;
+        }
+
+        try
+        {
+            var request = new RetrieveEntityRequest
+            {
+                LogicalName = entityLogicalName,
+                EntityFilters = EntityFilters.Entity,
+                RetrieveAsIfPublished = true
+            };
+
+            var response = (RetrieveEntityResponse)await _serviceClient.ExecuteAsync(request, cancellationToken);
+            var primaryNameAttribute = response.EntityMetadata.PrimaryNameAttribute;
+            if (!string.IsNullOrWhiteSpace(primaryNameAttribute))
+            {
+                _primaryNameAttributeCache[entityLogicalName] = primaryNameAttribute;
+                return primaryNameAttribute;
+            }
+        }
+        catch
+        {
+        }
+
+        return null;
+    }
+
+    private static Guid? ExtractGuid(string value)
+    {
+        if (Guid.TryParse(value.Trim('{', '}'), out var directGuid))
+        {
+            return directGuid;
+        }
+
+        var match = Regex.Match(value, "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+        if (match.Success && Guid.TryParse(match.Value, out var embeddedGuid))
+        {
+            return embeddedGuid;
+        }
+
+        return null;
     }
 
     private static string GetOperationName(int operationCode)

@@ -83,6 +83,7 @@ public partial class MainViewModel : ObservableObject
     public ObservableCollection<ViewDTO> AvailableViews { get; } = new();
     public ObservableCollection<CheckableItem<AuditOperation>> OperationsList { get; } = new();
     public ObservableCollection<CheckableItem<AuditAction>> ActionsList { get; } = new();
+    public ObservableCollection<CheckableItem<string>> AttributesList { get; } = new();
     public ObservableCollection<AuditExportRow> PreviewRecords { get; } = new();
     public bool IsManualTimeEnabled => !IsFullDay;
 
@@ -164,6 +165,7 @@ public partial class MainViewModel : ObservableObject
                 SelectedUser = SelectedUser,
                 SelectedOperations = GetSelectedOperations(),
                 SelectedActions = GetSelectedActions(),
+                SelectedAttributes = GetSelectedAttributes(),
                 StartDate = BuildStartDateTime(),
                 EndDate = BuildEndDateTime()
             };
@@ -245,6 +247,7 @@ public partial class MainViewModel : ObservableObject
 
         EntityName = value.LogicalName;
         _ = LoadSystemViewsAsync(value.LogicalName);
+        _ = LoadEntityAttributesAsync(value.LogicalName);
     }
 
     partial void OnSelectedViewChanged(ViewDTO? value)
@@ -261,6 +264,7 @@ public partial class MainViewModel : ObservableObject
     {
         AvailableEntities.Clear();
         AvailableViews.Clear();
+        AttributesList.Clear();
 
         var entities = await _metadataService.GetAuditableEntitiesAsync();
         foreach (var entity in entities)
@@ -307,6 +311,37 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    private async Task LoadEntityAttributesAsync(string entityLogicalName)
+    {
+        if (string.IsNullOrWhiteSpace(entityLogicalName) || !IsConnected)
+        {
+            AttributesList.Clear();
+            return;
+        }
+
+        try
+        {
+            var attributes = await _metadataService.GetEntityAttributesAsync(entityLogicalName);
+            AttributesList.Clear();
+            foreach (var attribute in attributes)
+            {
+                AttributesList.Add(new CheckableItem<string>
+                {
+                    Value = attribute.LogicalName,
+                    Label = string.IsNullOrWhiteSpace(attribute.DisplayName)
+                        ? attribute.LogicalName
+                        : $"{attribute.DisplayName} ({attribute.LogicalName})",
+                    IsSelected = false
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            AttributesList.Clear();
+            StatusMessage = $"No se pudieron cargar atributos: {ex.Message}";
+        }
+    }
+
     [RelayCommand]
     private void SelectAllOperations()
     {
@@ -338,6 +373,24 @@ public partial class MainViewModel : ObservableObject
     private void DeselectAllActions()
     {
         foreach (var item in ActionsList)
+        {
+            item.IsSelected = false;
+        }
+    }
+
+    [RelayCommand]
+    private void SelectAllAttributes()
+    {
+        foreach (var item in AttributesList)
+        {
+            item.IsSelected = true;
+        }
+    }
+
+    [RelayCommand]
+    private void DeselectAllAttributes()
+    {
+        foreach (var item in AttributesList)
         {
             item.IsSelected = false;
         }
@@ -398,6 +451,15 @@ public partial class MainViewModel : ObservableObject
             .Where(item => item.IsSelected)
             .Select(item => (int)item.Value)
             .Distinct()
+            .ToList();
+    }
+
+    private IReadOnlyList<string> GetSelectedAttributes()
+    {
+        return AttributesList
+            .Where(item => item.IsSelected && !string.IsNullOrWhiteSpace(item.Value))
+            .Select(item => item.Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 

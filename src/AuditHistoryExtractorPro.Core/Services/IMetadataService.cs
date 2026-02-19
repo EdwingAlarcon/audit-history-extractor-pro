@@ -6,4 +6,5 @@ public interface IMetadataService
 {
     Task<IReadOnlyList<EntityDTO>> GetAuditableEntitiesAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ViewDTO>> GetSystemViewsAsync(string entityLogicalName, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<AttributeDTO>> GetEntityAttributesAsync(string entityLogicalName, CancellationToken cancellationToken = default);
 }

@@ -11,9 +11,11 @@ public sealed class MetadataService : IMetadataService
     private readonly AuditService _auditService;
     private readonly SemaphoreSlim _entityCacheLock = new(1, 1);
     private readonly SemaphoreSlim _viewCacheLock = new(1, 1);
+    private readonly SemaphoreSlim _attributeCacheLock = new(1, 1);
 
     private IReadOnlyList<EntityDTO>? _auditableEntitiesCache;
     private readonly Dictionary<string, IReadOnlyList<ViewDTO>> _viewsByEntityCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, IReadOnlyList<AttributeDTO>> _attributesByEntityCache = new(StringComparer.OrdinalIgnoreCase);
 
     public MetadataService(AuditService auditService)
     {
@@ -138,6 +140,61 @@ public sealed class MetadataService : IMetadataService
         }
     }
 
+    public async Task<IReadOnlyList<AttributeDTO>> GetEntityAttributesAsync(string entityLogicalName, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(entityLogicalName))
+        {
+            return Array.Empty<AttributeDTO>();
+        }
+
+        var normalizedEntity = entityLogicalName.Trim();
+        if (_attributesByEntityCache.TryGetValue(normalizedEntity, out var cachedAttributes))
+        {
+            return cachedAttributes;
+        }
+
+        await _attributeCacheLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_attributesByEntityCache.TryGetValue(normalizedEntity, out cachedAttributes))
+            {
+                return cachedAttributes;
+            }
+
+            var client = GetReadyClient();
+            var request = new RetrieveEntityRequest
+            {
+                LogicalName = normalizedEntity,
+                EntityFilters = EntityFilters.Attributes,
+                RetrieveAsIfPublished = true
+            };
+
+            var response = await client.ExecuteAsync(request, cancellationToken) as RetrieveEntityResponse;
+            if (response?.EntityMetadata?.Attributes is null)
+            {
+                return Array.Empty<AttributeDTO>();
+            }
+
+            var attributes = response.EntityMetadata.Attributes
+                .Where(a => !string.IsNullOrWhiteSpace(a.LogicalName))
+                .Select(a => new AttributeDTO
+                {
+                    LogicalName = a.LogicalName ?? string.Empty,
+                    DisplayName = ResolveDisplayName(a),
+                    ColumnNumber = a.ColumnNumber
+                })
+                .OrderBy(a => a.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            _attributesByEntityCache[normalizedEntity] = attributes;
+            return attributes;
+        }
+        finally
+        {
+            _attributeCacheLock.Release();
+        }
+    }
+
     private DataverseServiceClient GetReadyClient()
     {
         var client = _auditService.ServiceClient;
@@ -150,6 +207,23 @@ public sealed class MetadataService : IMetadataService
     }
 
     private static string ResolveDisplayName(EntityMetadata metadata)
+    {
+        var localized = metadata.DisplayName?.UserLocalizedLabel?.Label;
+        if (!string.IsNullOrWhiteSpace(localized))
+        {
+            return localized;
+        }
+
+        var firstLabel = metadata.DisplayName?.LocalizedLabels?.FirstOrDefault()?.Label;
+        if (!string.IsNullOrWhiteSpace(firstLabel))
+        {
+            return firstLabel;
+        }
+
+        return metadata.LogicalName ?? string.Empty;
+    }
+
+    private static string ResolveDisplayName(AttributeMetadata metadata)
     {
         var localized = metadata.DisplayName?.UserLocalizedLabel?.Label;
         if (!string.IsNullOrWhiteSpace(localized))
