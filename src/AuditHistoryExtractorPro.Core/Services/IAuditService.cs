@@ -11,6 +11,8 @@ public interface IAuditService
 
     Task<IReadOnlyList<LookupItem>> GetUsersAsync(CancellationToken cancellationToken = default);
 
+    Task WarmupEntityMetadataAsync(string entityLogicalName, CancellationToken cancellationToken = default);
+
     Task<ExtractionResult> ExtractAuditHistoryAsync(
         ExtractionRequest request,
         string outputFilePath,
