@@ -36,7 +36,9 @@ public partial class App : System.Windows.Application
 		services.AddSingleton<AuthHelper>();
 		services.AddSingleton<QueryBuilderService>();
 		services.AddSingleton<IExcelExportService, ExcelExportService>();
-		services.AddSingleton<IAuditService, AuditService>();
+		services.AddSingleton<AuditService>();
+		services.AddSingleton<IAuditService>(sp => sp.GetRequiredService<AuditService>());
+		services.AddSingleton<IMetadataService, MetadataService>();
 		services.AddSingleton<MainViewModel>();
 		services.AddSingleton<MainWindow>();
 	}

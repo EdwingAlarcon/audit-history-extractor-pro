@@ -25,6 +25,7 @@ public class AuditService : IAuditService
 
     public bool IsConnected { get; private set; }
     public string OrganizationName { get; private set; } = string.Empty;
+    internal DataverseServiceClient? ServiceClient => _serviceClient;
 
     public AuditService(
         AuthHelper authHelper,

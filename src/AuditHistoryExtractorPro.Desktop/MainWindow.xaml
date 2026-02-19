@@ -64,9 +64,21 @@
 
                         <TextBlock Text="Entidad" Style="{StaticResource SectionTitleStyle}" />
                         <ComboBox x:Name="EntitySelector"
+                                  ItemsSource="{Binding AvailableEntities}"
+                                  SelectedItem="{Binding SelectedEntity, Mode=TwoWay}"
+                                  DisplayMemberPath="DisplayName"
                                   IsEditable="True"
                                   IsTextSearchEnabled="True"
                                   Text="{Binding EntityName, UpdateSourceTrigger=PropertyChanged}"
+                                  Height="34"
+                                  Margin="0,0,0,14" />
+
+                        <TextBlock Text="Vista del sistema" Style="{StaticResource SectionTitleStyle}" />
+                        <ComboBox x:Name="ViewSelector"
+                                  ItemsSource="{Binding AvailableViews}"
+                                  SelectedItem="{Binding SelectedView, Mode=TwoWay}"
+                                  DisplayMemberPath="Name"
+                                  IsTextSearchEnabled="True"
                                   Height="34"
                                   Margin="0,0,0,14" />
 

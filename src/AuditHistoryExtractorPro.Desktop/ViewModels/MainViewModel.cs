@@ -10,6 +10,7 @@ namespace AuditHistoryExtractorPro.Desktop.ViewModels;
 public partial class MainViewModel : ObservableObject
 {
     private readonly IAuditService _auditService;
+    private readonly IMetadataService _metadataService;
     private readonly List<LookupItem> _allUsers = new();
 
     [ObservableProperty]
@@ -31,6 +32,12 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     private string entityName = "account";
+
+    [ObservableProperty]
+    private EntityDTO? selectedEntity;
+
+    [ObservableProperty]
+    private ViewDTO? selectedView;
 
     [ObservableProperty]
     private DateTime? startDate;
@@ -72,11 +79,14 @@ public partial class MainViewModel : ObservableObject
     public IReadOnlyList<DateRangeFilter> DateRangeOptions { get; } = Enum.GetValues<DateRangeFilter>();
     public IReadOnlyList<OperationFilter> OperationOptions { get; } = Enum.GetValues<OperationFilter>();
     public ObservableCollection<LookupItem> AvailableUsers { get; } = new();
+    public ObservableCollection<EntityDTO> AvailableEntities { get; } = new();
+    public ObservableCollection<ViewDTO> AvailableViews { get; } = new();
     public ObservableCollection<AuditExportRow> PreviewRecords { get; } = new();
 
-    public MainViewModel(IAuditService auditService)
+    public MainViewModel(IAuditService auditService, IMetadataService metadataService)
     {
         _auditService = auditService;
+        _metadataService = metadataService;
     }
 
     private bool CanConnect() => !IsBusy;
@@ -117,6 +127,8 @@ public partial class MainViewModel : ObservableObject
             {
                 SelectedUser = AvailableUsers[0];
             }
+
+            await LoadAuditableEntitiesAsync();
         }
         catch (Exception ex)
         {
@@ -239,6 +251,77 @@ public partial class MainViewModel : ObservableObject
         else if (AvailableUsers.Count > 0)
         {
             SelectedUser = AvailableUsers[0];
+        }
+    }
+
+    partial void OnSelectedEntityChanged(EntityDTO? value)
+    {
+        if (value is null)
+        {
+            return;
+        }
+
+        EntityName = value.LogicalName;
+        _ = LoadSystemViewsAsync(value.LogicalName);
+    }
+
+    partial void OnSelectedViewChanged(ViewDTO? value)
+    {
+        if (value is null)
+        {
+            return;
+        }
+
+        ManualFetchXml = value.FetchXml;
+    }
+
+    private async Task LoadAuditableEntitiesAsync()
+    {
+        AvailableEntities.Clear();
+        AvailableViews.Clear();
+
+        var entities = await _metadataService.GetAuditableEntitiesAsync();
+        foreach (var entity in entities)
+        {
+            AvailableEntities.Add(entity);
+        }
+
+        if (AvailableEntities.Count == 0)
+        {
+            return;
+        }
+
+        SelectedEntity = AvailableEntities.FirstOrDefault(e =>
+            string.Equals(e.LogicalName, EntityName, StringComparison.OrdinalIgnoreCase))
+            ?? AvailableEntities[0];
+    }
+
+    private async Task LoadSystemViewsAsync(string entityLogicalName)
+    {
+        if (string.IsNullOrWhiteSpace(entityLogicalName) || !IsConnected)
+        {
+            AvailableViews.Clear();
+            SelectedView = null;
+            return;
+        }
+
+        try
+        {
+            var views = await _metadataService.GetSystemViewsAsync(entityLogicalName);
+
+            AvailableViews.Clear();
+            foreach (var view in views)
+            {
+                AvailableViews.Add(view);
+            }
+
+            SelectedView = AvailableViews.FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            AvailableViews.Clear();
+            SelectedView = null;
+            StatusMessage = $"No se pudieron cargar vistas del sistema: {ex.Message}";
         }
     }
 
