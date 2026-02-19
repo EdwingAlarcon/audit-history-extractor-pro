@@ -1,10 +1,11 @@
 @page "/history"
 @using AuditHistoryExtractorPro.Application.UseCases.CompareRecords
-@using AuditHistoryExtractorPro.Models
-@using MediatR
-@inject IMediator Mediator
+@using AuditHistoryExtractorPro.Domain.Entities
+@using AuditHistoryExtractorPro.UI.Services
+@using AuditHistoryExtractorPro.UI.ViewModels
 @inject ILogger<History> Logger
 @inject NavigationManager Navigation
+@inject HistoryPageCoordinator HistoryPageCoordinator
 
 <PageTitle>Historial - Audit History Extractor Pro</PageTitle>
 
@@ -18,22 +19,22 @@
         <div class="filter-grid">
             <div class="form-group">
                 <label>Entidad:</label>
-                <input type="text" @bind="_entityFilter" placeholder="Todas las entidades" class="form-input" />
+                <input type="text" @bind="_vm.EntityFilter" placeholder="Todas las entidades" class="form-input" />
             </div>
 
             <div class="form-group">
                 <label>ID del Registro:</label>
-                <input type="text" @bind="_recordIdFilter" placeholder="Filtrar por ID" class="form-input" />
+                <input type="text" @bind="_vm.RecordIdFilter" placeholder="Filtrar por ID" class="form-input" />
             </div>
 
             <div class="form-group">
                 <label>Usuario:</label>
-                <input type="text" @bind="_userFilter" placeholder="Todos los usuarios" class="form-input" />
+                <input type="text" @bind="_vm.UserFilter" placeholder="Todos los usuarios" class="form-input" />
             </div>
 
             <div class="form-group">
                 <label>Operación:</label>
-                <select @bind="_operationFilter" class="form-input">
+                <select @bind="_vm.OperationFilter" class="form-input">
                     <option value="">Todas</option>
                     <option value="Create">Crear</option>
                     <option value="Update">Actualizar</option>
@@ -43,20 +44,20 @@
 
             <div class="form-group">
                 <label>Fecha Desde:</label>
-                <input type="date" @bind="_dateFrom" class="form-input" />
+                <input type="date" @bind="_vm.DateFrom" class="form-input" />
             </div>
 
             <div class="form-group">
                 <label>Fecha Hasta:</label>
-                <input type="date" @bind="_dateTo" class="form-input" />
+                <input type="date" @bind="_vm.DateTo" class="form-input" />
             </div>
         </div>
 
         <div class="button-group">
-            <button class="btn-primary" @onclick="ApplyFilters">
+            <button class="btn-primary" @onclick="ApplyFilters" disabled="@_vm.IsLoading">
                 🔍 Aplicar Filtros
             </button>
-            <button class="btn-secondary" @onclick="ClearFilters">
+            <button class="btn-secondary" @onclick="ClearFilters" disabled="@_vm.IsLoading">
                 🔄 Limpiar
             </button>
         </div>
@@ -64,19 +65,26 @@
 
     <!-- Resultados -->
     <div class="results-section">
+        @if (!string.IsNullOrWhiteSpace(_vm.Message))
+        {
+            <div class="@(_vm.IsError ? "message-error" : "message-info")">
+                @_vm.Message
+            </div>
+        }
+
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
             <h2 style="color: #0078D4; margin: 0;">📊 Registros de Auditoría</h2>
-            <span style="color: #605E5C; font-weight: 600;">@_auditRecords.Count registros encontrados</span>
+            <span style="color: #605E5C; font-weight: 600;">@_vm.FilteredRecords.Count registros encontrados</span>
         </div>
 
-        @if (_isLoading)
+        @if (_vm.IsLoading)
         {
             <div class="loading-container">
                 <div class="spinner"></div>
                 <p style="color: #0078D4; margin-top: 15px;">Cargando registros...</p>
             </div>
         }
-        else if (_auditRecords.Any())
+        else if (_vm.FilteredRecords.Any())
         {
             <div class="table-container">
                 <table class="history-table">
@@ -91,7 +99,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var record in _auditRecords)
+                        @foreach (var record in _vm.PagedRecords)
                         {
                             <tr>
                                 <td>@record.CreatedOn.ToString("dd/MM/yyyy HH:mm:ss")</td>
@@ -118,13 +126,13 @@
 
             <!-- Paginación -->
             <div class="pagination">
-                <button class="page-btn" @onclick="PreviousPage" disabled="@(_currentPage == 1)">
+                <button class="page-btn" @onclick="PreviousPage" disabled="@(_vm.CurrentPage == 1)">
                     ← Anterior
                 </button>
                 <span style="color: #605E5C; font-weight: 600;">
-                    Página @_currentPage de @_totalPages
+                    Página @_vm.CurrentPage de @_vm.TotalPages
                 </span>
-                <button class="page-btn" @onclick="NextPage" disabled="@(_currentPage >= _totalPages)">
+                <button class="page-btn" @onclick="NextPage" disabled="@(_vm.CurrentPage >= _vm.TotalPages)">
                     Siguiente →
                 </button>
             </div>
@@ -147,19 +155,19 @@
         <h3 style="color: #0078D4; margin-bottom: 20px;">📈 Estadísticas</h3>
         <div class="stats-grid">
             <div class="stat-card" style="border-left: 4px solid #107C10;">
-                <div class="stat-number">@_stats.TotalCreates</div>
+                <div class="stat-number">@_vm.Stats.TotalCreates</div>
                 <div class="stat-label">✅ Creaciones</div>
             </div>
             <div class="stat-card" style="border-left: 4px solid #0078D4;">
-                <div class="stat-number">@_stats.TotalUpdates</div>
+                <div class="stat-number">@_vm.Stats.TotalUpdates</div>
                 <div class="stat-label">📝 Actualizaciones</div>
             </div>
             <div class="stat-card" style="border-left: 4px solid #E81123;">
-                <div class="stat-number">@_stats.TotalDeletes</div>
+                <div class="stat-number">@_vm.Stats.TotalDeletes</div>
                 <div class="stat-label">🗑️ Eliminaciones</div>
             </div>
             <div class="stat-card" style="border-left: 4px solid #5C2D91;">
-                <div class="stat-number">@_stats.UniqueEntities</div>
+                <div class="stat-number">@_vm.Stats.UniqueEntities</div>
                 <div class="stat-label">📦 Entidades Únicas</div>
             </div>
         </div>
@@ -167,19 +175,7 @@
 </div>
 
 @code {
-    private string _entityFilter = string.Empty;
-    private string _recordIdFilter = string.Empty;
-    private string _userFilter = string.Empty;
-    private string _operationFilter = string.Empty;
-    private DateTime? _dateFrom = DateTime.Now.AddDays(-30);
-    private DateTime? _dateTo = DateTime.Now;
-
-    private List<AuditRecord> _auditRecords = new();
-    private bool _isLoading = false;
-    private int _currentPage = 1;
-    private int _totalPages = 5;
-
-    private AuditStats _stats = new();
+    private readonly HistoryPageViewModel _vm = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -188,56 +184,54 @@
 
     private async Task LoadAuditData()
     {
+        _vm.IsLoading = true;
+        _vm.Message = string.Empty;
+        _vm.IsError = false;
+
         try
         {
-            // TODO: Implementar carga real de datos desde el servicio
-            // Por ahora, inicializamos con listas vacías
-            _auditRecords = new List<AuditRecord>();
-            _stats = new AuditStats
-            {
-                TotalCreates = 0,
-                TotalUpdates = 0,
-                TotalDeletes = 0,
-                UniqueEntities = 0
-            };
-            
+            HistoryPageCoordinator.LoadFromSession(_vm);
+
             await Task.CompletedTask;
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error al cargar datos de auditoría");
+            _vm.Message = "❌ Ocurrió un error al cargar el historial.";
+            _vm.IsError = true;
+        }
+        finally
+        {
+            _vm.IsLoading = false;
         }
     }
 
     private async Task ApplyFilters()
     {
-        _isLoading = true;
+        _vm.IsLoading = true;
+        _vm.Message = string.Empty;
+        _vm.IsError = false;
         
         try
         {
-            // TODO: Implementar filtrado real de datos
-            // Por ahora solo recarga los datos sin filtrar
-            await LoadAuditData();
+            HistoryPageCoordinator.ApplyFilters(_vm);
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error al aplicar filtros");
+            _vm.Message = "❌ Ocurrió un error al aplicar filtros.";
+            _vm.IsError = true;
         }
         finally
         {
-            _isLoading = false;
+            _vm.IsLoading = false;
         }
     }
 
     private async Task ClearFilters()
     {
-        _entityFilter = string.Empty;
-        _recordIdFilter = string.Empty;
-        _userFilter = string.Empty;
-        _operationFilter = string.Empty;
-        _dateFrom = DateTime.Now.AddDays(-30);
-        _dateTo = DateTime.Now;
-        await LoadAuditData();
+        HistoryPageCoordinator.ClearFilters(_vm);
+        await Task.CompletedTask;
     }
 
     private void ViewDetails(Guid recordId)
@@ -248,12 +242,12 @@
 
     private void PreviousPage()
     {
-        if (_currentPage > 1) _currentPage--;
+        HistoryPageCoordinator.GoToPreviousPage(_vm);
     }
 
     private void NextPage()
     {
-        if (_currentPage < _totalPages) _currentPage++;
+        HistoryPageCoordinator.GoToNextPage(_vm);
     }
 
     private string GetOperationClass(string operation) => operation switch
@@ -264,13 +258,6 @@
         _ => ""
     };
 
-    private class AuditStats
-    {
-        public int TotalCreates { get; set; }
-        public int TotalUpdates { get; set; }
-        public int TotalDeletes { get; set; }
-        public int UniqueEntities { get; set; }
-    }
 }
 
 <style>
@@ -429,6 +416,24 @@
         padding: 60px 20px;
     }
 
+    .message-info {
+        background: #F3F9FD;
+        border-left: 4px solid #0078D4;
+        padding: 15px;
+        border-radius: 4px;
+        color: #004578;
+        margin: 0 0 20px 0;
+    }
+
+    .message-error {
+        background: #FDE7E9;
+        border-left: 4px solid #E81123;
+        padding: 15px;
+        border-radius: 4px;
+        color: #A80000;
+        margin: 0 0 20px 0;
+    }
+
     .spinner {
         border: 4px solid #EDEBE9;
         border-top: 4px solid #0078D4;
@@ -509,5 +514,14 @@
     .btn-secondary:hover {
         background: #E1DFDD;
         transform: translateY(-2px);
+    }
+
+    .btn-primary:disabled,
+    .btn-secondary:disabled {
+        background: #E1DFDD;
+        color: #A19F9D;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
     }
 </style>

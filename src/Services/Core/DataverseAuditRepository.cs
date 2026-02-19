@@ -48,10 +48,16 @@ public class DataverseAuditRepository : IAuditRepository
     {
         if (_serviceClient == null || !_serviceClient.IsReady)
         {
-            var token = await _authProvider.GetAccessTokenAsync();
-            var connectionString = $"AuthType=OAuth;Url={_config.EnvironmentUrl};AccessToken={token};RequireNewInstance=True";
-            
-            _serviceClient = new ServiceClient(connectionString);
+            if (!Uri.TryCreate(_config.EnvironmentUrl, UriKind.Absolute, out var dataverseUri))
+            {
+                throw new InvalidOperationException($"EnvironmentUrl inválida: {_config.EnvironmentUrl}");
+            }
+
+            _serviceClient = new ServiceClient(
+                dataverseUri,
+                async _ => await _authProvider.GetAccessTokenAsync(),
+                useUniqueInstance: true,
+                logger: null);
             
             if (!_serviceClient.IsReady)
             {
@@ -230,6 +236,13 @@ public class DataverseAuditRepository : IAuditRepository
         if (criteria.UserIds?.Any() == true)
         {
             query.Criteria.AddCondition("userid", ConditionOperator.In, criteria.UserIds.ToArray());
+        }
+
+        // Filtrar por recordId enviado como custom filter desde UI
+        if (criteria.CustomFilters?.TryGetValue("recordId", out var recordIdValue) == true
+            && Guid.TryParse(recordIdValue, out var recordId))
+        {
+            query.Criteria.AddCondition("objectid", ConditionOperator.Equal, recordId);
         }
 
         query.Orders.Add(new OrderExpression("createdon", OrderType.Descending));

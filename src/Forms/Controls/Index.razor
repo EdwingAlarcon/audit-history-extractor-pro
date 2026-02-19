@@ -1,5 +1,6 @@
 @page "/"
 @inject NavigationManager Navigation
+@inject AuditHistoryExtractorPro.UI.Services.IAuditService AuditService
 
 <PageTitle>Dashboard - Audit History Extractor Pro</PageTitle>
 
@@ -31,10 +32,13 @@
     <h2 style="color: #323130; margin-bottom: 20px;">🚀 Acciones Rápidas</h2>
     
     <div style="display: flex; gap: 15px; flex-wrap: wrap;">
-        <button class="btn" @onclick="NavigateToExtract">🔽 Nueva Extracción</button>
-        <button class="btn" style="background: #107C10;" @onclick="NavigateToExport">📊 Ver Exportaciones</button>
-        <button class="btn" style="background: #5C2D91;" @onclick="NavigateToSettings">⚙️ Configuración</button>
-        <button class="btn" style="background: #00B7C3;" @onclick="NavigateToHistory">📝 Historial</button>
+        <button class="btn-ms btn-ms-primary" @onclick="ConnectDataverseAsync" disabled="@_isLoadingConnection">
+            @(_isLoadingConnection ? "Conectando..." : "Conectar")
+        </button>
+        <button class="btn-ms btn-ms-primary" @onclick="ExtraerAuditAsync">Extraer</button>
+        <button class="btn-ms btn-ms-success" @onclick="NavigateToExport">Exportar</button>
+        <button class="btn-secondary" @onclick="NavigateToSettings">⚙️ Configuración</button>
+        <button class="btn-secondary" @onclick="NavigateToHistory">📝 Historial</button>
     </div>
 </div>
 
@@ -42,8 +46,11 @@
     <h3 style="color: #0078D4; margin-bottom: 20px;">✅ Estado del Sistema</h3>
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
         <div>
-            <strong style="color: #107C10;">🟢 Conexión</strong><br/>
-            <span style="color: #605E5C;">Dataverse Conectado</span>
+            <strong style="color: #323130; display:flex; align-items:center; gap:8px;">
+                <span class="status-dot" style="background-color:@GetConnectionStatusColor();"></span>
+                Conexión
+            </strong><br/>
+            <span style="color: #605E5C;">@GetConnectionStatusText()</span>
         </div>
         <div>
             <strong style="color: #107C10;">🟢 Servicios</strong><br/>
@@ -61,11 +68,15 @@
     private long _totalRecords = 0;
     private int _activeEntities = 0;
     private string _lastExtractionDate = "N/A";
+    private bool _isLoadingConnection;
 
     protected override async Task OnInitializedAsync()
     {
+        await AuditService.InitializeAsync();
+
         // TODO: Cargar estadísticas reales desde el servicio
         await LoadDashboardStats();
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task LoadDashboardStats()
@@ -91,9 +102,52 @@
         return number.ToString();
     }
 
-    private void NavigateToExtract()
+    private Task ExtraerAuditAsync()
     {
+        Console.WriteLine("Botón presionado...");
         Navigation.NavigateTo("/extract", forceLoad: false);
+        return Task.CompletedTask;
+    }
+
+    private async Task ConnectDataverseAsync()
+    {
+        _isLoadingConnection = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            await AuditService.ConnectAsync();
+        }
+        catch
+        {
+        }
+        finally
+        {
+            _isLoadingConnection = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private string GetConnectionStatusColor()
+    {
+        if (_isLoadingConnection)
+        {
+            return "#FFB900";
+        }
+
+        return AuditService.IsConnected ? "#7FBA00" : "#F25022";
+    }
+
+    private string GetConnectionStatusText()
+    {
+        if (_isLoadingConnection)
+        {
+            return "Conectando...";
+        }
+
+        return AuditService.IsConnected
+            ? $"Conectado a: {AuditService.OrganizationName}"
+            : "Desconectado";
     }
 
     private void NavigateToExport()
@@ -144,22 +198,13 @@
         font-size: 18px;
         opacity: 0.95;
     }
-    
-    .btn {
-        background: #0078D4;
-        color: white;
-        padding: 15px 30px;
-        border: none;
-        border-radius: 4px;
-        font-size: 16px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.3s;
+
+    .status-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        display: inline-block;
+        box-shadow: 0 0 0 2px rgba(0,0,0,0.06);
     }
     
-    .btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 20px rgba(0, 120, 212, 0.4);
-        filter: brightness(1.1);
-    }
 </style>

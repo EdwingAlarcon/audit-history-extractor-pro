@@ -120,6 +120,7 @@ logs/
 # Publish
 publish/
 dist/
+Builds/
 
 # Database
 *.db

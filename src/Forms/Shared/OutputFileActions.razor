@@ -1,0 +1,16 @@
+<p style="margin-top: 10px;">
+    <button type="button" class="btn-secondary" @onclick="OnOpenFile" style="margin-right: 8px;">
+        📄 Abrir archivo
+    </button>
+    <button type="button" class="btn-secondary" @onclick="OnOpenFolder">
+        📂 Abrir carpeta
+    </button>
+</p>
+
+@code {
+    [Parameter]
+    public EventCallback OnOpenFile { get; set; }
+
+    [Parameter]
+    public EventCallback OnOpenFolder { get; set; }
+}

@@ -121,6 +121,18 @@ dataverse:
 
 ## 📖 Uso
 
+## 🆕 Novedades Recientes (2026-02-18)
+
+- Estabilización integral de la UI (`Extract`, `History`, `Export`) con validaciones y estados más robustos.
+- Separación de responsabilidades en capa de presentación mediante servicios, coordinadores y `PageViewModel` por pantalla.
+- Flujo integrado en sesión UI: `Extract -> History -> Export`.
+- Hardening validado con build + tests + smoke de rutas principales.
+
+Documentación relacionada:
+- Checklist de ejecución: [docs/UI_SURGICAL_CLEANUP_CHECKLIST.md](./docs/UI_SURGICAL_CLEANUP_CHECKLIST.md)
+- Resumen listo para PR: [docs/PR_SUMMARY_UI_SURGICAL_CLEANUP.md](./docs/PR_SUMMARY_UI_SURGICAL_CLEANUP.md)
+- Registro de cambios: [CHANGELOG.md](./CHANGELOG.md)
+
 ### Interfaz de Línea de Comandos (CLI)
 
 ```bash
@@ -159,6 +171,23 @@ dotnet run --project src/AuditHistoryExtractorPro.UI
 ```
 
 **Abre tu navegador en:** `https://localhost:5001`
+
+#### ⚙️ Configuración local rápida (UI)
+
+Antes del primer arranque de la UI, crea tu configuración local desde la plantilla:
+
+```bash
+# Linux/macOS
+cp src/AuditHistoryExtractorPro.UI/appsettings.example.json src/AuditHistoryExtractorPro.UI/appsettings.Development.json
+
+# Windows PowerShell
+Copy-Item src\AuditHistoryExtractorPro.UI\appsettings.example.json src\AuditHistoryExtractorPro.UI\appsettings.Development.json
+```
+
+Luego edita `src/AuditHistoryExtractorPro.UI/appsettings.Development.json` y completa:
+- `Dataverse.EnvironmentUrl`
+- `Dataverse.Type`
+- Credenciales según tipo (`TenantId`, `ClientId`, `ClientSecret` o certificado)
 
 #### 🎯 Primera Vez - Configurar Credenciales
 

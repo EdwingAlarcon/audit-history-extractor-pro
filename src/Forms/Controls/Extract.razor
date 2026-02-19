@@ -1,10 +1,13 @@
 @page "/extract"
 @using AuditHistoryExtractorPro.Application.UseCases.ExtractAudit
-@using AuditHistoryExtractorPro.Models
-@using MediatR
-@inject IMediator Mediator
+@using AuditHistoryExtractorPro.Domain.ValueObjects
+@using AuditHistoryExtractorPro.Domain.Entities
+@using AuditHistoryExtractorPro.Domain.Interfaces
+@using AuditHistoryExtractorPro.UI.Services
+@using AuditHistoryExtractorPro.UI.ViewModels
 @inject ILogger<Extract> Logger
 @inject NavigationManager Navigation
+@inject IAuditService AuditService
 
 <PageTitle>Nueva Extracción - Audit History Extractor Pro</PageTitle>
 
@@ -16,23 +19,23 @@
         
         <div class="form-group">
             <label>Nombre de la Entidad:</label>
-            <input type="text" @bind="_entityName" placeholder="account, contact, etc." class="form-input" />
+            <input type="text" @bind="AuditService.LastEntity" @bind:after="OnEntityChangedAsync" placeholder="account, contact, etc." class="form-input" />
         </div>
 
         <div class="form-group">
             <label>ID del Registro (opcional):</label>
-            <input type="text" @bind="_recordId" placeholder="00000000-0000-0000-0000-000000000000" class="form-input" />
+            <input type="text" @bind="_vm.RecordId" @bind:after="OnFiltersChangedAsync" placeholder="00000000-0000-0000-0000-000000000000" class="form-input" />
         </div>
 
         <div class="form-row">
             <div class="form-group">
                 <label>Fecha Inicio:</label>
-                <input type="date" @bind="_startDate" class="form-input" />
+                <input type="date" @bind="_vm.StartDate" @bind:after="OnFiltersChangedAsync" class="form-input" />
             </div>
             
             <div class="form-group">
                 <label>Fecha Fin:</label>
-                <input type="date" @bind="_endDate" class="form-input" />
+                <input type="date" @bind="_vm.EndDate" @bind:after="OnFiltersChangedAsync" class="form-input" />
             </div>
         </div>
 
@@ -40,15 +43,15 @@
             <label>Operaciones específicas (opcional):</label>
             <div class="checkbox-group">
                 <label class="checkbox-label">
-                    <input type="checkbox" @bind="_includeCreate" />
+                    <input type="checkbox" @bind="_vm.IncludeCreate" @bind:after="OnFiltersChangedAsync" />
                     <span>Crear</span>
                 </label>
                 <label class="checkbox-label">
-                    <input type="checkbox" @bind="_includeUpdate" />
+                    <input type="checkbox" @bind="_vm.IncludeUpdate" @bind:after="OnFiltersChangedAsync" />
                     <span>Actualizar</span>
                 </label>
                 <label class="checkbox-label">
-                    <input type="checkbox" @bind="_includeDelete" />
+                    <input type="checkbox" @bind="_vm.IncludeDelete" @bind:after="OnFiltersChangedAsync" />
                     <span>Eliminar</span>
                 </label>
             </div>
@@ -56,138 +59,349 @@
 
         <div class="form-group">
             <label>Límite de registros:</label>
-            <input type="number" @bind="_maxRecords" min="1" max="50000" class="form-input" />
+            <input type="number" @bind="_vm.MaxRecords" @bind:after="OnFiltersChangedAsync" min="1" max="10000" class="form-input" />
         </div>
 
-        @if (_isExtracting)
+        @if (isLoading)
         {
             <div class="progress-container">
                 <div class="progress-bar">
-                    <div class="progress-fill" style="width: @(_progress)%"></div>
+                    <div class="progress-fill" style="width: @(_vm.Progress)%"></div>
                 </div>
                 <p style="text-align: center; color: #0078D4; margin-top: 10px;">
-                    Extrayendo... @(_progress)% completado
+                    Extrayendo... @(_vm.Progress)% completado
                 </p>
+                @if (!string.IsNullOrWhiteSpace(_vm.StatusMessage))
+                {
+                    <p style="text-align: center; color: #605E5C; margin-top: 4px; font-size: 13px;">
+                        @_vm.StatusMessage
+                    </p>
+                }
             </div>
         }
 
-        @if (!string.IsNullOrEmpty(_message))
+        @if (isLoading)
         {
-            <div class="@(_isError ? "message-error" : "message-success")">
-                @_message
-                @if (_recordsExtracted > 0)
+            <div class="loading-indicator" role="status" aria-live="polite">
+                <span class="loading-spinner" aria-hidden="true"></span>
+                <span>Cargando...</span>
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(alertMessage))
+        {
+            <div class="@(isAlertError ? "message-error" : "message-success")">
+                @alertMessage
+                @if (_vm.RecordsExtracted > 0)
                 {
-                    <p><strong>Registros extraídos: @_recordsExtracted</strong></p>
+                    <p><strong>Registros extraídos: @_vm.RecordsExtracted</strong></p>
+                }
+                @if (!isAlertError && !string.IsNullOrWhiteSpace(lastOutputFilePath))
+                {
+                    <p><strong>Archivo CSV:</strong> @lastOutputFilePath</p>
+                    <OutputFileActions OnOpenFile="OpenOutputFile" OnOpenFolder="OpenOutputFolder" />
                 }
             </div>
         }
 
         <div class="button-group">
-            <button class="btn-primary" @onclick="StartExtraction" disabled="@_isExtracting">
-                @(_isExtracting ? "⏳ Extrayendo..." : "🚀 Iniciar Extracción")
+            <button class="btn-ms btn-ms-success" @onclick="HandleExtractOnClick" disabled="@isLoading">
+                @(isLoading ? "Extrayendo..." : "Extraer")
             </button>
+            @if (isLoading)
+            {
+                <button class="btn-secondary" @onclick="CancelExtraction">
+                    ⛔ Cancelar
+                </button>
+            }
             <button class="btn-secondary" @onclick="@(() => Navigation.NavigateTo("/"))">
                 ⬅️ Volver al Dashboard
             </button>
-            @if (_recordsExtracted > 0 && !_isExtracting)
-            {
-                <button class="btn-success" @onclick="@(() => Navigation.NavigateTo("/export"))">
-                    📊 Ir a Exportar →
-                </button>
-            }
         </div>
     </div>
 </div>
 
 @code {
-    private string _entityName = "account";
-    private string _recordId = string.Empty;
-    private DateTime? _startDate = DateTime.Now.AddMonths(-1);
-    private DateTime? _endDate = DateTime.Now;
-    private bool _includeCreate = true;
-    private bool _includeUpdate = true;
-    private bool _includeDelete = true;
-    private int _maxRecords = 1000;
-    
-    private bool _isExtracting = false;
-    private int _progress = 0;
-    private string _message = string.Empty;
-    private bool _isError = false;
-    private int _recordsExtracted = 0;
+    private readonly ExtractPageViewModel _vm = new();
+    private bool isLoading;
+    private string alertMessage = string.Empty;
+    private bool isAlertError;
+    private string lastOutputFilePath = string.Empty;
 
-    private async Task StartExtraction()
+    protected override async Task OnInitializedAsync()
     {
-        _isExtracting = true;
-        _progress = 0;
-        _message = string.Empty;
-        _isError = false;
-        _recordsExtracted = 0;
+        await AuditService.InitializeAsync();
+
+        if (!string.IsNullOrWhiteSpace(AuditService.LastEntity))
+        {
+            _vm.EntityName = AuditService.LastEntity;
+        }
+
+        ApplySavedFilters();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task HandleExtractOnClick()
+    {
+        if (string.IsNullOrWhiteSpace(AuditService.LastEntity))
+        {
+            ShowAlert("⚠️ Selecciona o ingresa una entidad antes de extraer.", true);
+            return;
+        }
+
+        _vm.EntityName = AuditService.LastEntity;
+
+        isLoading = true;
+        _vm.Progress = 0;
+        _vm.StatusMessage = string.Empty;
+        _vm.RecordsExtracted = 0;
+        _vm.ExtractionCts?.Dispose();
+        _vm.ExtractionCts = new CancellationTokenSource();
+        alertMessage = string.Empty;
+        isAlertError = false;
+        lastOutputFilePath = string.Empty;
 
         try
         {
-            // Validación básica
-            if (string.IsNullOrWhiteSpace(_entityName))
-            {
-                _message = "⚠️ Por favor ingrese el nombre de la entidad.";
-                _isError = true;
-                _isExtracting = false;
-                return;
-            }
+            AuditService.LastFilters = BuildFiltersSnapshot();
+            await AuditService.SaveUserConfigAsync();
 
-            // Crear criterios de extracción
-            var operations = new List<OperationType>();
-            if (_includeCreate) operations.Add(OperationType.Create);
-            if (_includeUpdate) operations.Add(OperationType.Update);
-            if (_includeDelete) operations.Add(OperationType.Delete);
-
-            var criteria = new ExtractionCriteria
+            var exportPath = BuildOutputCsvPath(_vm.EntityName);
+            var progress = new Progress<string>(status =>
             {
-                EntityNames = new List<string> { _entityName.Trim() },
-                FromDate = _startDate,
-                ToDate = _endDate,
-                Operations = operations.Any() ? operations : null,
-                PageSize = _maxRecords
-            };
-
-            // Progreso simulado
-            var progress = new Progress<int>(p =>
-            {
-                _progress = p;
+                _vm.StatusMessage = status;
+                UpdateProgressFromStatus(status);
                 InvokeAsync(StateHasChanged);
             });
 
-            // Ejecutar comando
-            var command = new ExtractAuditCommand
-            {
-                Criteria = criteria,
-                Progress = null // Por ahora sin progreso hasta implementar correctamente
-            };
+            var result = await AuditService.ExtractAuditHistoryAsync(
+                new ExtractInputModel
+                {
+                    EntityName = _vm.EntityName,
+                    RecordId = _vm.RecordId,
+                    StartDate = _vm.StartDate,
+                    EndDate = _vm.EndDate,
+                    IncludeCreate = _vm.IncludeCreate,
+                    IncludeUpdate = _vm.IncludeUpdate,
+                    IncludeDelete = _vm.IncludeDelete,
+                    MaxRecords = _vm.MaxRecords
+                },
+                exportPath,
+                progress,
+                _vm.ExtractionCts.Token);
 
-            var response = await Mediator.Send(command);
-
-            if (response.Success)
+            if (result.Success)
             {
-                _recordsExtracted = response.Records.Count;
-                _message = $"✅ Extracción completada exitosamente!";
-                _isError = false;
-                _progress = 100;
+                _vm.RecordsExtracted = result.RecordsExtracted;
+                lastOutputFilePath = result.OutputFilePath;
+                ShowAlert(result.Message, false);
+                _vm.Progress = 100;
             }
             else
             {
-                _message = $"❌ Error: {response.ErrorMessage}";
-                _isError = true;
+                lastOutputFilePath = string.Empty;
+                ShowAlert(result.Message, true);
             }
+        }
+        catch (OperationCanceledException)
+        {
+            ShowAlert("⚠️ Extracción cancelada por el usuario.", true);
+            _vm.StatusMessage = string.Empty;
+            lastOutputFilePath = string.Empty;
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error durante la extracción");
-            _message = $"❌ Error inesperado: {ex.Message}";
-            _isError = true;
+            ShowAlert($"❌ Error inesperado: {ex.Message}", true);
+            lastOutputFilePath = string.Empty;
         }
         finally
         {
-            _isExtracting = false;
+            isLoading = false;
+            _vm.ExtractionCts?.Dispose();
+            _vm.ExtractionCts = null;
         }
+    }
+
+    private static string BuildOutputCsvPath(string entityName)
+    {
+        var safeEntity = string.IsNullOrWhiteSpace(entityName) ? "audit" : entityName.Trim();
+        var fileName = $"audit_{safeEntity}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.csv";
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "AuditHistoryExtractorPro",
+            "exports",
+            fileName);
+    }
+
+    private void UpdateProgressFromStatus(string status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            return;
+        }
+
+        if (status.StartsWith("Consultando página", StringComparison.OrdinalIgnoreCase))
+        {
+            _vm.Progress = Math.Min(95, Math.Max(_vm.Progress, 10));
+            return;
+        }
+
+        if (!status.StartsWith("Escribiendo registros", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var marker = status.LastIndexOf('-');
+        if (marker <= 0)
+        {
+            return;
+        }
+
+        var tail = status[(marker + 1)..].Trim().TrimEnd('.');
+        if (!int.TryParse(tail, out var written) || _vm.MaxRecords <= 0)
+        {
+            return;
+        }
+
+        var percentage = (int)Math.Round((written * 100.0) / _vm.MaxRecords, MidpointRounding.AwayFromZero);
+        _vm.Progress = Math.Clamp(percentage, 1, 99);
+    }
+
+    private void CancelExtraction()
+    {
+        if (isLoading)
+        {
+            _vm.ExtractionCts?.Cancel();
+        }
+    }
+
+    private void OpenOutputFolder()
+    {
+        if (string.IsNullOrWhiteSpace(lastOutputFilePath))
+        {
+            return;
+        }
+
+        var directory = Path.GetDirectoryName(lastOutputFilePath);
+        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+        {
+            ShowAlert("⚠️ No se encontró la carpeta de salida.", true);
+            return;
+        }
+
+        try
+        {
+            var startInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = directory,
+                UseShellExecute = true
+            };
+
+            System.Diagnostics.Process.Start(startInfo);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "No fue posible abrir la carpeta de salida");
+            ShowAlert("❌ No fue posible abrir la carpeta de salida.", true);
+        }
+    }
+
+    private void OpenOutputFile()
+    {
+        if (string.IsNullOrWhiteSpace(lastOutputFilePath) || !File.Exists(lastOutputFilePath))
+        {
+            ShowAlert("⚠️ No se encontró el archivo CSV generado.", true);
+            return;
+        }
+
+        try
+        {
+            var startInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = lastOutputFilePath,
+                UseShellExecute = true
+            };
+
+            System.Diagnostics.Process.Start(startInfo);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "No fue posible abrir el archivo CSV");
+            ShowAlert("❌ No fue posible abrir el archivo CSV.", true);
+        }
+    }
+
+    private void ShowAlert(string message, bool isError)
+    {
+        alertMessage = message;
+        isAlertError = isError;
+    }
+
+    private Task OnEntityChangedAsync()
+    {
+        _vm.EntityName = AuditService.LastEntity;
+        return AuditService.SaveUserConfigAsync();
+    }
+
+    private Task OnFiltersChangedAsync()
+    {
+        AuditService.LastFilters = BuildFiltersSnapshot();
+        return AuditService.SaveUserConfigAsync();
+    }
+
+    private string BuildFiltersSnapshot()
+    {
+        return System.Text.Json.JsonSerializer.Serialize(new ExtractFiltersState
+        {
+            RecordId = _vm.RecordId,
+            StartDate = _vm.StartDate,
+            EndDate = _vm.EndDate,
+            IncludeCreate = _vm.IncludeCreate,
+            IncludeUpdate = _vm.IncludeUpdate,
+            IncludeDelete = _vm.IncludeDelete,
+            MaxRecords = _vm.MaxRecords
+        });
+    }
+
+    private void ApplySavedFilters()
+    {
+        if (string.IsNullOrWhiteSpace(AuditService.LastFilters))
+        {
+            return;
+        }
+
+        try
+        {
+            var saved = System.Text.Json.JsonSerializer.Deserialize<ExtractFiltersState>(AuditService.LastFilters);
+            if (saved is null)
+            {
+                return;
+            }
+
+            _vm.RecordId = saved.RecordId ?? string.Empty;
+            _vm.StartDate = saved.StartDate;
+            _vm.EndDate = saved.EndDate;
+            _vm.IncludeCreate = saved.IncludeCreate;
+            _vm.IncludeUpdate = saved.IncludeUpdate;
+            _vm.IncludeDelete = saved.IncludeDelete;
+            _vm.MaxRecords = saved.MaxRecords > 0 ? saved.MaxRecords : _vm.MaxRecords;
+        }
+        catch
+        {
+        }
+    }
+
+    private class ExtractFiltersState
+    {
+        public string? RecordId { get; set; }
+        public DateTime? StartDate { get; set; }
+        public DateTime? EndDate { get; set; }
+        public bool IncludeCreate { get; set; }
+        public bool IncludeUpdate { get; set; }
+        public bool IncludeDelete { get; set; }
+        public int MaxRecords { get; set; }
     }
 }
 
@@ -298,50 +512,27 @@
         flex-wrap: wrap;
     }
 
-    .btn-primary, .btn-secondary, .btn-success {
-        padding: 14px 28px;
-        border: none;
-        border-radius: 4px;
-        font-size: 16px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.3s;
-    }
-
-    .btn-primary {
-        background: #0078D4;
-        color: white;
-    }
-
-    .btn-primary:hover:not(:disabled) {
-        background: #106EBE;
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0, 120, 212, 0.3);
-    }
-
-    .btn-primary:disabled {
-        background: #A19F9D;
-        cursor: not-allowed;
-    }
-
-    .btn-secondary {
-        background: #EDEBE9;
+    .loading-indicator {
+        margin: 20px 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
         color: #323130;
+        font-weight: 600;
     }
 
-    .btn-secondary:hover {
-        background: #E1DFDD;
-        transform: translateY(-2px);
+    .loading-spinner {
+        width: 18px;
+        height: 18px;
+        border: 3px solid #D1D1D1;
+        border-top-color: #00A4EF;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
     }
 
-    .btn-success {
-        background: #107C10;
-        color: white;
-    }
-
-    .btn-success:hover {
-        background: #0E6B0E;
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(16, 124, 16, 0.3);
+    @@keyframes spin {
+        to {
+            transform: rotate(360deg);
+        }
     }
 </style>
