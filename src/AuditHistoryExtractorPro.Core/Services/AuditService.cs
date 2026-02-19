@@ -188,6 +188,8 @@ public class AuditService : IAuditService
             SelectedDateRange = request.SelectedDateRange,
             SelectedUser = request.SelectedUser,
             SelectedOperation = request.SelectedOperation,
+            SelectedOperations = request.SelectedOperations,
+            SelectedActions = request.SelectedActions,
             RecordId = request.RecordId,
             StartDate = request.StartDate,
             EndDate = request.EndDate

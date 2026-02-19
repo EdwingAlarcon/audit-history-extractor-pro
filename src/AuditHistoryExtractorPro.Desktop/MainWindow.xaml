@@ -108,12 +108,37 @@
                                          Margin="0,0,0,10"
                                          Text="{Binding UserSearchText, UpdateSourceTrigger=PropertyChanged}" />
 
-                                <TextBlock Text="Acciones" Style="{StaticResource SectionTitleStyle}" Margin="0,0,0,6" />
-                                <StackPanel Orientation="Horizontal">
-                                    <CheckBox Content="Create" IsChecked="{Binding IncludeCreate}" Margin="0,0,12,0" />
-                                    <CheckBox Content="Update" IsChecked="{Binding IncludeUpdate}" Margin="0,0,12,0" />
-                                    <CheckBox Content="Delete" IsChecked="{Binding IncludeDelete}" />
+                                <ComboBox Height="32"
+                                          Margin="0,0,0,10"
+                                          ItemsSource="{Binding AvailableUsers}"
+                                          SelectedItem="{Binding SelectedUser, Mode=TwoWay}"
+                                          DisplayMemberPath="Name" />
+
+                                <TextBlock Text="Operaciones" Style="{StaticResource SectionTitleStyle}" Margin="0,0,0,6" />
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                    <Button Content="Seleccionar todo" Command="{Binding SelectAllOperationsCommand}" Margin="0,0,6,0" />
+                                    <Button Content="Deseleccionar todo" Command="{Binding DeselectAllOperationsCommand}" />
                                 </StackPanel>
+                                <ItemsControl ItemsSource="{Binding OperationsList}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <CheckBox Content="{Binding Label}" IsChecked="{Binding IsSelected, Mode=TwoWay}" Margin="0,0,0,2" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <TextBlock Text="Acciones" Style="{StaticResource SectionTitleStyle}" Margin="0,8,0,6" />
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                    <Button Content="Seleccionar todo" Command="{Binding SelectAllActionsCommand}" Margin="0,0,6,0" />
+                                    <Button Content="Deseleccionar todo" Command="{Binding DeselectAllActionsCommand}" />
+                                </StackPanel>
+                                <ItemsControl ItemsSource="{Binding ActionsList}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <CheckBox Content="{Binding Label}" IsChecked="{Binding IsSelected, Mode=TwoWay}" Margin="0,0,0,2" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
                             </StackPanel>
                         </GroupBox>
 

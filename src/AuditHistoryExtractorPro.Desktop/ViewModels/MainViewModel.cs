@@ -1,5 +1,7 @@
 using AuditHistoryExtractorPro.Core.Models;
 using AuditHistoryExtractorPro.Core.Services;
+using AuditHistoryExtractorPro.Desktop.Models;
+using AuditHistoryExtractorPro.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Collections.ObjectModel;
@@ -11,7 +13,8 @@ public partial class MainViewModel : ObservableObject
 {
     private readonly IAuditService _auditService;
     private readonly IMetadataService _metadataService;
-    private readonly List<LookupItem> _allUsers = new();
+    private readonly IDataService _dataService;
+    private CancellationTokenSource? _userSearchCts;
 
     [ObservableProperty]
     private bool isConnected;
@@ -59,34 +62,34 @@ public partial class MainViewModel : ObservableObject
     private LookupItem? selectedUser;
 
     [ObservableProperty]
-    private OperationFilter selectedOperation = OperationFilter.Update;
-
-    [ObservableProperty]
     private string userSearchText = string.Empty;
-
-    [ObservableProperty]
-    private bool includeCreate = true;
-
-    [ObservableProperty]
-    private bool includeUpdate = true;
-
-    [ObservableProperty]
-    private bool includeDelete = true;
 
     [ObservableProperty]
     private string manualFetchXml = string.Empty;
 
     public IReadOnlyList<DateRangeFilter> DateRangeOptions { get; } = Enum.GetValues<DateRangeFilter>();
-    public IReadOnlyList<OperationFilter> OperationOptions { get; } = Enum.GetValues<OperationFilter>();
     public ObservableCollection<LookupItem> AvailableUsers { get; } = new();
     public ObservableCollection<EntityDTO> AvailableEntities { get; } = new();
     public ObservableCollection<ViewDTO> AvailableViews { get; } = new();
+    public ObservableCollection<CheckableItem<AuditOperation>> OperationsList { get; } = new();
+    public ObservableCollection<CheckableItem<AuditAction>> ActionsList { get; } = new();
     public ObservableCollection<AuditExportRow> PreviewRecords { get; } = new();
 
-    public MainViewModel(IAuditService auditService, IMetadataService metadataService)
+    public MainViewModel(IAuditService auditService, IMetadataService metadataService, IDataService dataService)
     {
         _auditService = auditService;
         _metadataService = metadataService;
+        _dataService = dataService;
+
+        foreach (var operation in AuditMetadataService.GetAuditOperations())
+        {
+            OperationsList.Add(operation);
+        }
+
+        foreach (var action in AuditMetadataService.GetAuditActions())
+        {
+            ActionsList.Add(action);
+        }
     }
 
     private bool CanConnect() => !IsBusy;
@@ -113,22 +116,8 @@ public partial class MainViewModel : ObservableObject
                 ? $"Conectado a: {_auditService.OrganizationName}"
                 : "No se pudo conectar.";
 
-            AvailableUsers.Clear();
-            _allUsers.Clear();
-
-            var users = await _auditService.GetUsersAsync();
-            foreach (var user in users)
-            {
-                _allUsers.Add(user);
-                AvailableUsers.Add(user);
-            }
-
-            if (AvailableUsers.Count > 0 && SelectedUser is null)
-            {
-                SelectedUser = AvailableUsers[0];
-            }
-
             await LoadAuditableEntitiesAsync();
+            await SearchUsersAsync(string.Empty);
         }
         catch (Exception ex)
         {
@@ -157,12 +146,10 @@ public partial class MainViewModel : ObservableObject
             {
                 EntityName = EntityName,
                 MaxRecords = 10000,
-                IncludeCreate = IncludeCreate,
-                IncludeUpdate = IncludeUpdate,
-                IncludeDelete = IncludeDelete,
                 SelectedDateRange = SelectedDateRange,
                 SelectedUser = SelectedUser,
-                SelectedOperation = ResolveSelectedOperation(),
+                SelectedOperations = GetSelectedOperations(),
+                SelectedActions = GetSelectedActions(),
                 StartDate = StartDate,
                 EndDate = EndDate
             };
@@ -227,31 +214,7 @@ public partial class MainViewModel : ObservableObject
 
     partial void OnUserSearchTextChanged(string value)
     {
-        if (_allUsers.Count == 0)
-        {
-            return;
-        }
-
-        var query = value?.Trim() ?? string.Empty;
-        var filtered = string.IsNullOrWhiteSpace(query)
-            ? _allUsers
-            : _allUsers.Where(u => u.Name.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
-
-        var currentSelection = SelectedUser;
-        AvailableUsers.Clear();
-        foreach (var user in filtered)
-        {
-            AvailableUsers.Add(user);
-        }
-
-        if (currentSelection is not null && AvailableUsers.Any(u => u.Id == currentSelection.Id))
-        {
-            SelectedUser = AvailableUsers.First(u => u.Id == currentSelection.Id);
-        }
-        else if (AvailableUsers.Count > 0)
-        {
-            SelectedUser = AvailableUsers[0];
-        }
+        _ = SearchUsersAsync(value);
     }
 
     partial void OnSelectedEntityChanged(EntityDTO? value)
@@ -325,13 +288,97 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    private OperationFilter? ResolveSelectedOperation()
+    [RelayCommand]
+    private void SelectAllOperations()
     {
-        var selected = new List<OperationFilter>();
-        if (IncludeCreate) selected.Add(OperationFilter.Create);
-        if (IncludeUpdate) selected.Add(OperationFilter.Update);
-        if (IncludeDelete) selected.Add(OperationFilter.Delete);
+        foreach (var item in OperationsList)
+        {
+            item.IsSelected = true;
+        }
+    }
 
-        return selected.Count == 1 ? selected[0] : null;
+    [RelayCommand]
+    private void DeselectAllOperations()
+    {
+        foreach (var item in OperationsList)
+        {
+            item.IsSelected = false;
+        }
+    }
+
+    [RelayCommand]
+    private void SelectAllActions()
+    {
+        foreach (var item in ActionsList)
+        {
+            item.IsSelected = true;
+        }
+    }
+
+    [RelayCommand]
+    private void DeselectAllActions()
+    {
+        foreach (var item in ActionsList)
+        {
+            item.IsSelected = false;
+        }
+    }
+
+    private async Task SearchUsersAsync(string? query)
+    {
+        if (!IsConnected)
+        {
+            return;
+        }
+
+        _userSearchCts?.Cancel();
+        _userSearchCts?.Dispose();
+        _userSearchCts = new CancellationTokenSource();
+
+        try
+        {
+            var users = await _dataService.SearchUsersAsync(query ?? string.Empty, _userSearchCts.Token);
+            var current = SelectedUser;
+
+            AvailableUsers.Clear();
+            foreach (var user in users)
+            {
+                AvailableUsers.Add(new LookupItem { Id = user.Id, Name = user.Name });
+            }
+
+            if (current is not null && AvailableUsers.Any(u => u.Id == current.Id))
+            {
+                SelectedUser = AvailableUsers.First(u => u.Id == current.Id);
+            }
+            else
+            {
+                SelectedUser = AvailableUsers.FirstOrDefault();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Error buscando usuarios: {ex.Message}";
+        }
+    }
+
+    private IReadOnlyList<int> GetSelectedOperations()
+    {
+        return OperationsList
+            .Where(item => item.IsSelected)
+            .Select(item => (int)item.Value)
+            .Distinct()
+            .ToList();
+    }
+
+    private IReadOnlyList<int> GetSelectedActions()
+    {
+        return ActionsList
+            .Where(item => item.IsSelected)
+            .Select(item => (int)item.Value)
+            .Distinct()
+            .ToList();
     }
 }

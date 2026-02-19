@@ -38,6 +38,7 @@ public partial class App : System.Windows.Application
 		services.AddSingleton<IExcelExportService, ExcelExportService>();
 		services.AddSingleton<AuditService>();
 		services.AddSingleton<IAuditService>(sp => sp.GetRequiredService<AuditService>());
+		services.AddSingleton<IDataService, DataService>();
 		services.AddSingleton<IMetadataService, MetadataService>();
 		services.AddSingleton<MainViewModel>();
 		services.AddSingleton<MainWindow>();

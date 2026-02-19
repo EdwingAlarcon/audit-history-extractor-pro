@@ -16,6 +16,8 @@ public class ExtractionRequest
     public DateRangeFilter SelectedDateRange { get; init; } = DateRangeFilter.Todo;
     public LookupItem? SelectedUser { get; init; }
     public OperationFilter? SelectedOperation { get; init; }
+    public IReadOnlyList<int> SelectedOperations { get; init; } = Array.Empty<int>();
+    public IReadOnlyList<int> SelectedActions { get; init; } = Array.Empty<int>();
 
     public ExtractionCriteria ToCriteria()
     {
@@ -35,7 +37,11 @@ public class ExtractionRequest
         }
 
         var operations = new List<OperationType>();
-        if (SelectedOperation.HasValue)
+        if (SelectedOperations.Count > 0)
+        {
+            operations.AddRange(SelectedOperations.Select(value => (OperationType)value));
+        }
+        else if (SelectedOperation.HasValue)
         {
             operations.Add((OperationType)(int)SelectedOperation.Value);
         }

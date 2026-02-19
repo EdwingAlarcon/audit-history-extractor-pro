@@ -6,7 +6,7 @@ namespace AuditHistoryExtractorPro.Core.Services;
 
 public class QueryBuilderService
 {
-    public QueryExpression BuildQueryExpression(
+    public QueryExpression BuildAuditQuery(
         AuditQueryFilters filters,
         int pageNumber,
         string? pagingCookie,
@@ -17,6 +17,7 @@ public class QueryBuilderService
             ColumnSet = new ColumnSet(
                 "auditid",
                 "createdon",
+                "operation",
                 "action",
                 "objectid",
                 "objecttypecode",
@@ -45,9 +46,21 @@ public class QueryBuilderService
             query.Criteria.AddCondition("createdon", ConditionOperator.LessEqual, toDate.Value);
         }
 
-        if (filters.SelectedOperation.HasValue)
+        var operations = filters.SelectedOperations?.Where(value => value > 0).Distinct().ToArray() ?? Array.Empty<int>();
+        if (operations.Length == 0 && filters.SelectedOperation.HasValue)
         {
-            query.Criteria.AddCondition("action", ConditionOperator.Equal, (int)filters.SelectedOperation.Value);
+            operations = new[] { (int)filters.SelectedOperation.Value };
+        }
+
+        if (operations.Length > 0)
+        {
+            query.Criteria.AddCondition("operation", ConditionOperator.In, operations.Cast<object>().ToArray());
+        }
+
+        var actions = filters.SelectedActions?.Where(value => value > 0).Distinct().ToArray() ?? Array.Empty<int>();
+        if (actions.Length > 0)
+        {
+            query.Criteria.AddCondition("action", ConditionOperator.In, actions.Cast<object>().ToArray());
         }
 
         if (filters.SelectedUser is not null)
@@ -64,6 +77,15 @@ public class QueryBuilderService
         return query;
     }
 
+    public QueryExpression BuildQueryExpression(
+        AuditQueryFilters filters,
+        int pageNumber,
+        string? pagingCookie,
+        int pageSize)
+    {
+        return BuildAuditQuery(filters, pageNumber, pagingCookie, pageSize);
+    }
+
     public string BuildFetchXml(AuditQueryFilters filters, int pageNumber, int pageSize, string? pagingCookie = null)
     {
         var (fromDate, toDate) = ResolveDateRange(filters);
@@ -77,6 +99,7 @@ public class QueryBuilderService
         sb.Append(">\n  <entity name='audit'>\n");
         sb.Append("    <attribute name='auditid'/>\n");
         sb.Append("    <attribute name='createdon'/>\n");
+        sb.Append("    <attribute name='operation'/>\n");
         sb.Append("    <attribute name='action'/>\n");
         sb.Append("    <attribute name='objectid'/>\n");
         sb.Append("    <attribute name='objecttypecode'/>\n");
@@ -96,9 +119,33 @@ public class QueryBuilderService
             sb.Append($"      <condition attribute='createdon' operator='on-or-before' value='{toDate.Value:yyyy-MM-ddTHH:mm:ssZ}' />\n");
         }
 
-        if (filters.SelectedOperation.HasValue)
+        var operations = filters.SelectedOperations?.Where(value => value > 0).Distinct().ToArray() ?? Array.Empty<int>();
+        if (operations.Length == 0 && filters.SelectedOperation.HasValue)
         {
-            sb.Append($"      <condition attribute='action' operator='eq' value='{(int)filters.SelectedOperation.Value}' />\n");
+            operations = new[] { (int)filters.SelectedOperation.Value };
+        }
+
+        if (operations.Length > 0)
+        {
+            sb.Append("      <condition attribute='operation' operator='in'>\n");
+            foreach (var operation in operations)
+            {
+                sb.Append($"        <value>{operation}</value>\n");
+            }
+
+            sb.Append("      </condition>\n");
+        }
+
+        var actions = filters.SelectedActions?.Where(value => value > 0).Distinct().ToArray() ?? Array.Empty<int>();
+        if (actions.Length > 0)
+        {
+            sb.Append("      <condition attribute='action' operator='in'>\n");
+            foreach (var action in actions)
+            {
+                sb.Append($"        <value>{action}</value>\n");
+            }
+
+            sb.Append("      </condition>\n");
         }
 
         if (filters.SelectedUser is not null)
