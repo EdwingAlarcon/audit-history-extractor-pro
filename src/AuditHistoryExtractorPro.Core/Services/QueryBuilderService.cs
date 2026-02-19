@@ -167,9 +167,19 @@ public class QueryBuilderService
 
     private static (DateTime? fromDate, DateTime? toDate) ResolveDateRange(AuditQueryFilters filters)
     {
-        if (filters.StartDate.HasValue || filters.EndDate.HasValue)
+        var explicitFrom = filters.StartDate ?? filters.SelectedDateFrom;
+        var explicitTo = filters.EndDate ?? filters.SelectedDateTo;
+
+        if (explicitFrom.HasValue || explicitTo.HasValue)
         {
-            return (filters.StartDate, filters.EndDate);
+            if (filters.IsFullDay)
+            {
+                var fromDate = explicitFrom?.Date;
+                var toDate = explicitTo?.Date.AddDays(1).AddTicks(-1);
+                return (fromDate, toDate);
+            }
+
+            return (explicitFrom, explicitTo);
         }
 
         var now = DateTime.UtcNow;

@@ -5,6 +5,7 @@ using AuditHistoryExtractorPro.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 
 namespace AuditHistoryExtractorPro.Desktop.ViewModels;
@@ -43,10 +44,19 @@ public partial class MainViewModel : ObservableObject
     private ViewDTO? selectedView;
 
     [ObservableProperty]
-    private DateTime? startDate;
+    private DateTime selectedDateFrom = DateTime.Today;
 
     [ObservableProperty]
-    private DateTime? endDate;
+    private DateTime selectedDateTo = DateTime.Today;
+
+    [ObservableProperty]
+    private bool isFullDay = true;
+
+    [ObservableProperty]
+    private string fromTimeText = "00:00";
+
+    [ObservableProperty]
+    private string toTimeText = "23:59";
 
     [ObservableProperty]
     private string outputPath = Path.Combine(
@@ -74,6 +84,7 @@ public partial class MainViewModel : ObservableObject
     public ObservableCollection<CheckableItem<AuditOperation>> OperationsList { get; } = new();
     public ObservableCollection<CheckableItem<AuditAction>> ActionsList { get; } = new();
     public ObservableCollection<AuditExportRow> PreviewRecords { get; } = new();
+    public bool IsManualTimeEnabled => !IsFullDay;
 
     public MainViewModel(IAuditService auditService, IMetadataService metadataService, IDataService dataService)
     {
@@ -147,11 +158,14 @@ public partial class MainViewModel : ObservableObject
                 EntityName = EntityName,
                 MaxRecords = 10000,
                 SelectedDateRange = SelectedDateRange,
+                SelectedDateFrom = SelectedDateFrom,
+                SelectedDateTo = SelectedDateTo,
+                IsFullDay = IsFullDay,
                 SelectedUser = SelectedUser,
                 SelectedOperations = GetSelectedOperations(),
                 SelectedActions = GetSelectedActions(),
-                StartDate = StartDate,
-                EndDate = EndDate
+                StartDate = BuildStartDateTime(),
+                EndDate = BuildEndDateTime()
             };
 
             var progress = new Progress<string>(message =>
@@ -215,6 +229,11 @@ public partial class MainViewModel : ObservableObject
     partial void OnUserSearchTextChanged(string value)
     {
         _ = SearchUsersAsync(value);
+    }
+
+    partial void OnIsFullDayChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsManualTimeEnabled));
     }
 
     partial void OnSelectedEntityChanged(EntityDTO? value)
@@ -380,5 +399,37 @@ public partial class MainViewModel : ObservableObject
             .Select(item => (int)item.Value)
             .Distinct()
             .ToList();
+    }
+
+    private DateTime BuildStartDateTime()
+    {
+        if (IsFullDay)
+        {
+            return SelectedDateFrom.Date;
+        }
+
+        var time = ParseTimeOrDefault(FromTimeText, new TimeSpan(0, 0, 0));
+        return SelectedDateFrom.Date.Add(time);
+    }
+
+    private DateTime BuildEndDateTime()
+    {
+        if (IsFullDay)
+        {
+            return SelectedDateTo.Date;
+        }
+
+        var time = ParseTimeOrDefault(ToTimeText, new TimeSpan(23, 59, 0));
+        return SelectedDateTo.Date.Add(time);
+    }
+
+    private static TimeSpan ParseTimeOrDefault(string? value, TimeSpan fallback)
+    {
+        if (TimeSpan.TryParseExact(value?.Trim(), @"hh\:mm", CultureInfo.InvariantCulture, out var parsed))
+        {
+            return parsed;
+        }
+
+        return fallback;
     }
 }

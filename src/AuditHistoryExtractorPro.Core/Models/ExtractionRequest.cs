@@ -6,6 +6,9 @@ public class ExtractionRequest
 {
     public string EntityName { get; init; } = "account";
     public string RecordId { get; init; } = string.Empty;
+    public DateTime? SelectedDateFrom { get; init; }
+    public DateTime? SelectedDateTo { get; init; }
+    public bool IsFullDay { get; init; } = true;
     public DateTime? StartDate { get; init; }
     public DateTime? EndDate { get; init; }
     public bool IncludeCreate { get; init; } = true;

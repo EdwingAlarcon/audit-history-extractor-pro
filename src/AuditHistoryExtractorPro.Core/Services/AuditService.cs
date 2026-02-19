@@ -186,6 +186,9 @@ public class AuditService : IAuditService
         {
             EntityName = request.EntityName,
             SelectedDateRange = request.SelectedDateRange,
+            SelectedDateFrom = request.SelectedDateFrom,
+            SelectedDateTo = request.SelectedDateTo,
+            IsFullDay = request.IsFullDay,
             SelectedUser = request.SelectedUser,
             SelectedOperation = request.SelectedOperation,
             SelectedOperations = request.SelectedOperations,
