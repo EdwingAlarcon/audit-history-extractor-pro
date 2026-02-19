@@ -1,0 +1,527 @@
+@page "/history"
+@using AuditHistoryExtractorPro.Application.UseCases.CompareRecords
+@using AuditHistoryExtractorPro.Domain.Entities
+@using AuditHistoryExtractorPro.UI.Services
+@using AuditHistoryExtractorPro.UI.ViewModels
+@inject ILogger<History> Logger
+@inject NavigationManager Navigation
+@inject HistoryPageCoordinator HistoryPageCoordinator
+
+<PageTitle>Historial - Audit History Extractor Pro</PageTitle>
+
+<h1 style="color: #0078D4; margin-bottom: 30px; font-size: 36px;">📝 Historial de Auditoría</h1>
+
+<div class="history-container">
+    <!-- Filtros -->
+    <div class="filter-section">
+        <h2 style="color: #0078D4; margin-bottom: 20px;">🔍 Filtros de Búsqueda</h2>
+        
+        <div class="filter-grid">
+            <div class="form-group">
+                <label>Entidad:</label>
+                <input type="text" @bind="_vm.EntityFilter" placeholder="Todas las entidades" class="form-input" />
+            </div>
+
+            <div class="form-group">
+                <label>ID del Registro:</label>
+                <input type="text" @bind="_vm.RecordIdFilter" placeholder="Filtrar por ID" class="form-input" />
+            </div>
+
+            <div class="form-group">
+                <label>Usuario:</label>
+                <input type="text" @bind="_vm.UserFilter" placeholder="Todos los usuarios" class="form-input" />
+            </div>
+
+            <div class="form-group">
+                <label>Operación:</label>
+                <select @bind="_vm.OperationFilter" class="form-input">
+                    <option value="">Todas</option>
+                    <option value="Create">Crear</option>
+                    <option value="Update">Actualizar</option>
+                    <option value="Delete">Eliminar</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Fecha Desde:</label>
+                <input type="date" @bind="_vm.DateFrom" class="form-input" />
+            </div>
+
+            <div class="form-group">
+                <label>Fecha Hasta:</label>
+                <input type="date" @bind="_vm.DateTo" class="form-input" />
+            </div>
+        </div>
+
+        <div class="button-group">
+            <button class="btn-primary" @onclick="ApplyFilters" disabled="@_vm.IsLoading">
+                🔍 Aplicar Filtros
+            </button>
+            <button class="btn-secondary" @onclick="ClearFilters" disabled="@_vm.IsLoading">
+                🔄 Limpiar
+            </button>
+        </div>
+    </div>
+
+    <!-- Resultados -->
+    <div class="results-section">
+        @if (!string.IsNullOrWhiteSpace(_vm.Message))
+        {
+            <div class="@(_vm.IsError ? "message-error" : "message-info")">
+                @_vm.Message
+            </div>
+        }
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h2 style="color: #0078D4; margin: 0;">📊 Registros de Auditoría</h2>
+            <span style="color: #605E5C; font-weight: 600;">@_vm.FilteredRecords.Count registros encontrados</span>
+        </div>
+
+        @if (_vm.IsLoading)
+        {
+            <div class="loading-container">
+                <div class="spinner"></div>
+                <p style="color: #0078D4; margin-top: 15px;">Cargando registros...</p>
+            </div>
+        }
+        else if (_vm.FilteredRecords.Any())
+        {
+            <div class="table-container">
+                <table class="history-table">
+                    <thead>
+                        <tr>
+                            <th>Fecha/Hora</th>
+                            <th>Entidad</th>
+                            <th>Operación</th>
+                            <th>Usuario</th>
+                            <th>Campos Modificados</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var record in _vm.PagedRecords)
+                        {
+                            <tr>
+                                <td>@record.CreatedOn.ToString("dd/MM/yyyy HH:mm:ss")</td>
+                                <td>
+                                    <span class="entity-badge">@record.EntityName</span>
+                                </td>
+                                <td>
+                                    <span class="operation-badge @GetOperationClass(record.Operation)">
+                                        @record.Operation
+                                    </span>
+                                </td>
+                                <td>@record.UserName</td>
+                                <td>@record.Changes.Count campos</td>
+                                <td>
+                                    <button class="btn-action" @onclick="() => ViewDetails(record.RecordId)">
+                                        👁️ Ver
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Paginación -->
+            <div class="pagination">
+                <button class="page-btn" @onclick="PreviousPage" disabled="@(_vm.CurrentPage == 1)">
+                    ← Anterior
+                </button>
+                <span style="color: #605E5C; font-weight: 600;">
+                    Página @_vm.CurrentPage de @_vm.TotalPages
+                </span>
+                <button class="page-btn" @onclick="NextPage" disabled="@(_vm.CurrentPage >= _vm.TotalPages)">
+                    Siguiente →
+                </button>
+            </div>
+        }
+        else
+        {
+            <div class="empty-state">
+                <div style="font-size: 64px; margin-bottom: 20px;">📭</div>
+                <h3 style="color: #323130; margin-bottom: 10px;">No se encontraron registros</h3>
+                <p style="color: #605E5C;">Intenta ajustar los filtros de búsqueda o realiza una nueva extracción.</p>
+                <button class="btn-primary" style="margin-top: 20px;" @onclick="@(() => Navigation.NavigateTo("/extract"))">
+                    🔽 Nueva Extracción
+                </button>
+            </div>
+        }
+    </div>
+
+    <!-- Estadísticas -->
+    <div class="stats-section">
+        <h3 style="color: #0078D4; margin-bottom: 20px;">📈 Estadísticas</h3>
+        <div class="stats-grid">
+            <div class="stat-card" style="border-left: 4px solid #107C10;">
+                <div class="stat-number">@_vm.Stats.TotalCreates</div>
+                <div class="stat-label">✅ Creaciones</div>
+            </div>
+            <div class="stat-card" style="border-left: 4px solid #0078D4;">
+                <div class="stat-number">@_vm.Stats.TotalUpdates</div>
+                <div class="stat-label">📝 Actualizaciones</div>
+            </div>
+            <div class="stat-card" style="border-left: 4px solid #E81123;">
+                <div class="stat-number">@_vm.Stats.TotalDeletes</div>
+                <div class="stat-label">🗑️ Eliminaciones</div>
+            </div>
+            <div class="stat-card" style="border-left: 4px solid #5C2D91;">
+                <div class="stat-number">@_vm.Stats.UniqueEntities</div>
+                <div class="stat-label">📦 Entidades Únicas</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private readonly HistoryPageViewModel _vm = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAuditData();
+    }
+
+    private async Task LoadAuditData()
+    {
+        _vm.IsLoading = true;
+        _vm.Message = string.Empty;
+        _vm.IsError = false;
+
+        try
+        {
+            HistoryPageCoordinator.LoadFromSession(_vm);
+
+            await Task.CompletedTask;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error al cargar datos de auditoría");
+            _vm.Message = "❌ Ocurrió un error al cargar el historial.";
+            _vm.IsError = true;
+        }
+        finally
+        {
+            _vm.IsLoading = false;
+        }
+    }
+
+    private async Task ApplyFilters()
+    {
+        _vm.IsLoading = true;
+        _vm.Message = string.Empty;
+        _vm.IsError = false;
+        
+        try
+        {
+            HistoryPageCoordinator.ApplyFilters(_vm);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error al aplicar filtros");
+            _vm.Message = "❌ Ocurrió un error al aplicar filtros.";
+            _vm.IsError = true;
+        }
+        finally
+        {
+            _vm.IsLoading = false;
+        }
+    }
+
+    private async Task ClearFilters()
+    {
+        HistoryPageCoordinator.ClearFilters(_vm);
+        await Task.CompletedTask;
+    }
+
+    private void ViewDetails(Guid recordId)
+    {
+        // Navegar a una página de detalles o mostrar un modal
+        Logger.LogInformation($"Viewing details for record {recordId}");
+    }
+
+    private void PreviousPage()
+    {
+        HistoryPageCoordinator.GoToPreviousPage(_vm);
+    }
+
+    private void NextPage()
+    {
+        HistoryPageCoordinator.GoToNextPage(_vm);
+    }
+
+    private string GetOperationClass(string operation) => operation switch
+    {
+        "Create" => "operation-create",
+        "Update" => "operation-update",
+        "Delete" => "operation-delete",
+        _ => ""
+    };
+
+}
+
+<style>
+    .history-container {
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+
+    .filter-section, .results-section, .stats-section {
+        background: white;
+        padding: 30px;
+        border-radius: 12px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+    }
+
+    .filter-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 20px;
+        margin-bottom: 20px;
+    }
+
+    .form-group {
+        margin-bottom: 0;
+    }
+
+    label {
+        display: block;
+        color: #323130;
+        font-weight: 600;
+        margin-bottom: 8px;
+    }
+
+    .form-input, select {
+        width: 100%;
+        padding: 10px;
+        border: 2px solid #EDEBE9;
+        border-radius: 4px;
+        font-size: 14px;
+        transition: border-color 0.3s;
+    }
+
+    .form-input:focus, select:focus {
+        outline: none;
+        border-color: #0078D4;
+    }
+
+    .table-container {
+        overflow-x: auto;
+    }
+
+    .history-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 20px 0;
+    }
+
+    .history-table th {
+        background: #F3F2F1;
+        padding: 15px;
+        text-align: left;
+        font-weight: 600;
+        color: #323130;
+        border-bottom: 2px solid #EDEBE9;
+    }
+
+    .history-table td {
+        padding: 15px;
+        border-bottom: 1px solid #EDEBE9;
+        color: #323130;
+    }
+
+    .history-table tbody tr:hover {
+        background: #F3F9FD;
+    }
+
+    .entity-badge {
+        background: #E1DFDD;
+        color: #323130;
+        padding: 5px 12px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+
+    .operation-badge {
+        padding: 5px 12px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 600;
+        display: inline-block;
+    }
+
+    .operation-create {
+        background: #DFF6DD;
+        color: #107C10;
+    }
+
+    .operation-update {
+        background: #F3F9FD;
+        color: #0078D4;
+    }
+
+    .operation-delete {
+        background: #FDE7E9;
+        color: #A80000;
+    }
+
+    .btn-action {
+        background: #0078D4;
+        color: white;
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .btn-action:hover {
+        background: #106EBE;
+        transform: translateY(-1px);
+    }
+
+    .pagination {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 20px;
+        margin-top: 30px;
+    }
+
+    .page-btn {
+        background: #0078D4;
+        color: white;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+
+    .page-btn:hover:not(:disabled) {
+        background: #106EBE;
+    }
+
+    .page-btn:disabled {
+        background: #E1DFDD;
+        color: #A19F9D;
+        cursor: not-allowed;
+    }
+
+    .loading-container {
+        text-align: center;
+        padding: 60px 20px;
+    }
+
+    .message-info {
+        background: #F3F9FD;
+        border-left: 4px solid #0078D4;
+        padding: 15px;
+        border-radius: 4px;
+        color: #004578;
+        margin: 0 0 20px 0;
+    }
+
+    .message-error {
+        background: #FDE7E9;
+        border-left: 4px solid #E81123;
+        padding: 15px;
+        border-radius: 4px;
+        color: #A80000;
+        margin: 0 0 20px 0;
+    }
+
+    .spinner {
+        border: 4px solid #EDEBE9;
+        border-top: 4px solid #0078D4;
+        border-radius: 50%;
+        width: 50px;
+        height: 50px;
+        animation: spin 1s linear infinite;
+        margin: 0 auto;
+    }
+
+    @@keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 80px 20px;
+    }
+
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 20px;
+    }
+
+    .stat-card {
+        background: #FAFAFA;
+        padding: 20px;
+        border-radius: 8px;
+        text-align: center;
+    }
+
+    .stat-number {
+        font-size: 36px;
+        font-weight: 700;
+        color: #323130;
+        margin-bottom: 8px;
+    }
+
+    .stat-label {
+        color: #605E5C;
+        font-size: 14px;
+    }
+
+    .button-group {
+        display: flex;
+        gap: 15px;
+        flex-wrap: wrap;
+    }
+
+    .btn-primary, .btn-secondary {
+        padding: 12px 24px;
+        border: none;
+        border-radius: 4px;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+
+    .btn-primary {
+        background: #0078D4;
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: #106EBE;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 120, 212, 0.3);
+    }
+
+    .btn-secondary {
+        background: #EDEBE9;
+        color: #323130;
+    }
+
+    .btn-secondary:hover {
+        background: #E1DFDD;
+        transform: translateY(-2px);
+    }
+
+    .btn-primary:disabled,
+    .btn-secondary:disabled {
+        background: #E1DFDD;
+        color: #A19F9D;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+    }
+</style>

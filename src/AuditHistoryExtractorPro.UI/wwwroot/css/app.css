@@ -1,0 +1,278 @@
+:root {
+    --ms-red: #F25022;
+    --ms-green: #7FBA00;
+    --ms-blue: #00A4EF;
+    --ms-yellow: #FFB900;
+    --ms-gray: #737373;
+
+    --fluent-text-primary: #323130;
+    --fluent-text-secondary: #605E5C;
+    --fluent-bg-page: #FAF9F8;
+    --fluent-bg-surface: #FFFFFF;
+    --fluent-bg-subtle: #F3F2F1;
+    --fluent-border: #E1DFDD;
+
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
+    --focus-ring: 0 0 0 3px rgba(0, 164, 239, 0.25);
+}
+
+html,
+body {
+    background: var(--fluent-bg-page);
+    color: var(--fluent-text-primary);
+    font-family: "Segoe UI", SegoeUI, -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+}
+
+.mud-main-content {
+    background: var(--fluent-bg-page) !important;
+}
+
+.mud-appbar {
+    color: var(--fluent-text-primary) !important;
+}
+
+.mud-nav-link {
+    border-radius: var(--radius-md);
+}
+
+.mud-nav-link.active,
+.mud-nav-link:hover {
+    background: #eef8fd;
+}
+
+.mud-table thead th {
+    background: #F3F2F1 !important;
+    color: #323130 !important;
+}
+
+.mud-table tbody td {
+    color: #323130 !important;
+}
+
+.btn-primary,
+.btn-info {
+    background: var(--ms-blue) !important;
+    border-color: var(--ms-blue) !important;
+    color: #fff !important;
+    border-radius: 4px !important;
+}
+
+.btn-success {
+    background: var(--ms-green) !important;
+    border-color: var(--ms-green) !important;
+    color: #fff !important;
+    border-radius: 4px !important;
+}
+
+.btn-secondary {
+    background: #fff !important;
+    color: var(--fluent-text-primary) !important;
+    border: 1px solid var(--fluent-border) !important;
+    border-radius: 4px !important;
+}
+
+.btn-extract,
+.btn-export {
+    border: none;
+    color: #ffffff;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 16px;
+    line-height: 1;
+    padding: 14px 28px;
+    cursor: pointer;
+    transition: background-color 0.18s ease, transform 0.12s ease, box-shadow 0.18s ease;
+}
+
+.btn-ms {
+    padding: 10px 20px;
+    border-radius: 4px;
+    font-family: 'Segoe UI', SegoeUI, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: 0.3s;
+}
+
+.btn-ms-primary,
+.btn-ms-success {
+    color: #ffffff;
+}
+
+.btn-ms-primary {
+    background-color: #00A4EF;
+}
+
+.btn-ms-success {
+    background-color: #7FBA00;
+}
+
+.btn-ms-primary:hover:not(:disabled) {
+    background-color: #008cc9;
+}
+
+.btn-ms-success:hover:not(:disabled) {
+    background-color: #6a9d00;
+}
+
+.btn-ms-primary:active:not(:disabled),
+.btn-ms-success:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.btn-ms-primary:disabled,
+.btn-ms-success:disabled {
+    background-color: #a19f9d;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.btn-extract {
+    background-color: #00A4EF;
+}
+
+.btn-export {
+    background-color: #7FBA00;
+}
+
+.btn-extract:hover:not(:disabled) {
+    background-color: #0094D8;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 164, 239, 0.35);
+}
+
+.btn-export:hover:not(:disabled) {
+    background-color: #6FA300;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(127, 186, 0, 0.35);
+}
+
+.btn-extract:active:not(:disabled),
+.btn-export:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.btn-extract:disabled,
+.btn-export:disabled {
+    background-color: #a19f9d;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.btn-primary:hover:not(:disabled),
+.btn-info:hover:not(:disabled),
+.btn-success:hover:not(:disabled),
+.btn-secondary:hover:not(:disabled) {
+    filter: brightness(0.95);
+    box-shadow: var(--shadow-sm);
+}
+
+.btn-primary:focus,
+.btn-info:focus,
+.btn-success:focus,
+.btn-extract:focus,
+.btn-export:focus,
+.btn-ms-primary:focus,
+.btn-ms-success:focus,
+.btn-secondary:focus,
+.form-input:focus,
+select:focus,
+input:focus {
+    outline: none;
+    box-shadow: var(--focus-ring) !important;
+}
+
+.message-error,
+.alert-error {
+    background: rgba(242, 80, 34, 0.12) !important;
+    border-left: 4px solid var(--ms-red) !important;
+    color: #7a1a00 !important;
+}
+
+.message-warning,
+.alert-warning {
+    background: rgba(255, 185, 0, 0.20) !important;
+    border-left: 4px solid var(--ms-yellow) !important;
+    color: #5f4a00 !important;
+}
+
+.message-success,
+.alert-success {
+    background: rgba(127, 186, 0, 0.16) !important;
+    border-left: 4px solid var(--ms-green) !important;
+    color: #2e4d00 !important;
+}
+
+.message-info,
+.alert-info {
+    background: rgba(0, 164, 239, 0.12) !important;
+    border-left: 4px solid var(--ms-blue) !important;
+    color: #004f72 !important;
+}
+
+.tabs {
+    border-bottom: 1px solid var(--fluent-border) !important;
+}
+
+.tab.active {
+    color: var(--ms-blue) !important;
+    border-bottom-color: var(--ms-blue) !important;
+    background: #F4FAFE !important;
+}
+
+.tab:hover {
+    color: var(--ms-blue) !important;
+}
+
+.accounts-table th {
+    background: #F3F2F1 !important;
+    color: #323130 !important;
+}
+
+.accounts-table td {
+    color: #323130 !important;
+}
+
+.accounts-table tbody tr:hover {
+    background: #F9FBFD !important;
+}
+
+.stat-label,
+.text-muted {
+    color: var(--ms-gray) !important;
+}
+
+::deep #blazor-error-ui {
+    background: rgba(242, 80, 34, 0.12);
+    border-top: 3px solid var(--ms-red);
+    bottom: 0;
+    box-shadow: 0 -1px 5px rgba(0, 0, 0, 0.3);
+    display: none;
+    left: 0;
+    padding: 0.6rem 1.25rem 0.7rem 1.25rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+}
+
+::deep #blazor-error-ui .dismiss {
+    cursor: pointer;
+    position: absolute;
+    right: 0.75rem;
+    top: 0.5rem;
+}
+
+::deep blazor-error-boundary {
+    background: var(--fluent-bg-subtle);
+    border-left: 4px solid var(--ms-red);
+    padding: 1rem 1rem 1rem 1.25rem;
+    color: var(--fluent-text-primary);
+}
+
+::deep blazor-error-boundary::after {
+    content: "Ocurrió un error.";
+}
