@@ -22,6 +22,7 @@ public class ExtractionRequest
     public IReadOnlyList<int> SelectedOperations { get; init; } = Array.Empty<int>();
     public IReadOnlyList<int> SelectedActions { get; init; } = Array.Empty<int>();
     public IReadOnlyList<string> SelectedAttributes { get; init; } = Array.Empty<string>();
+    public string SearchValue { get; init; } = string.Empty;
 
     public ExtractionCriteria ToCriteria()
     {

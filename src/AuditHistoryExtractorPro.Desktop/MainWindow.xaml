@@ -62,6 +62,37 @@
                                    Foreground="#323130"
                                    Margin="0,0,0,14" />
 
+                        <GroupBox Header="Conexión" Margin="0,0,0,14" Padding="10,8">
+                            <StackPanel>
+                                <TextBlock Text="URL de Dataverse" Style="{StaticResource SectionTitleStyle}" Margin="0,0,0,6" />
+                                <ComboBox IsEditable="True"
+                                          Height="32"
+                                          Margin="0,0,0,8"
+                                          ItemsSource="{Binding ConnectionProfiles}"
+                                          SelectedItem="{Binding SelectedConnectionProfile, Mode=TwoWay}"
+                                          DisplayMemberPath="Url"
+                                          Text="{Binding CrmUrl, UpdateSourceTrigger=PropertyChanged}" />
+
+                                <TextBlock Text="Nombre de perfil" Style="{StaticResource SectionTitleStyle}" Margin="0,0,0,6" />
+                                <TextBox Height="32"
+                                         Margin="0,0,0,8"
+                                         Text="{Binding ProfileName, UpdateSourceTrigger=PropertyChanged}" />
+
+                                <TextBlock Text="Usuario" Style="{StaticResource SectionTitleStyle}" Margin="0,0,0,6" />
+                                <TextBox Height="32"
+                                         Margin="0,0,0,8"
+                                         Text="{Binding ProfileUserName, UpdateSourceTrigger=PropertyChanged}" />
+
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="Guardar Perfil"
+                                            Command="{Binding SaveProfileCommand}"
+                                            Margin="0,0,6,0" />
+                                    <Button Content="Borrar Perfil"
+                                            Command="{Binding DeleteProfileCommand}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </GroupBox>
+
                         <TextBlock Text="Entidad" Style="{StaticResource SectionTitleStyle}" />
                         <ComboBox x:Name="EntitySelector"
                                   ItemsSource="{Binding AvailableEntities}"
@@ -181,6 +212,17 @@
 
                         <Expander Header="Avanzado" IsExpanded="False" Margin="0,0,0,12">
                             <StackPanel Margin="0,8,0,0">
+                                <TextBlock Text="Búsqueda de valor (Old/New)"
+                                           Style="{StaticResource SectionTitleStyle}"
+                                           Margin="0,0,0,6" />
+                                <TextBox Height="32"
+                                         Margin="0,0,0,6"
+                                         Text="{Binding SearchValue, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBlock Text="Nota: este filtro se aplica en cliente y puede hacer la extracción un poco más lenta, pero es más preciso."
+                                           Foreground="#A4262C"
+                                           TextWrapping="Wrap"
+                                           Margin="0,0,0,10" />
+
                                 <TextBlock Text="FetchXML Manual"
                                            Style="{StaticResource SectionTitleStyle}"
                                            Margin="0,0,0,6" />

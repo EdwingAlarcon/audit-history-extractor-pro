@@ -17,6 +17,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IAuditService _auditService;
     private readonly IMetadataService _metadataService;
     private readonly IDataService _dataService;
+    private readonly ConnectionManagerService _connectionManagerService;
     private CancellationTokenSource? _userSearchCts;
 
     [ObservableProperty]
@@ -35,6 +36,16 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     private string crmUrl = "https://yourorg.crm.dynamics.com";
+
+    [ObservableProperty]
+    private string profileName = string.Empty;
+
+    [ObservableProperty]
+    private string profileUserName = string.Empty;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(DeleteProfileCommand))]
+    private ConnectionProfile? selectedConnectionProfile;
 
     [ObservableProperty]
     private string entityName = "account";
@@ -80,12 +91,16 @@ public partial class MainViewModel : ObservableObject
     private string manualFetchXml = string.Empty;
 
     [ObservableProperty]
+    private string searchValue = string.Empty;
+
+    [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(CopyGuidCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenRecordCommand))]
     private AuditExportRow? selectedPreviewRecord;
 
     public IReadOnlyList<DateRangeFilter> DateRangeOptions { get; } = Enum.GetValues<DateRangeFilter>();
     public ObservableCollection<LookupItem> AvailableUsers { get; } = new();
+    public ObservableCollection<ConnectionProfile> ConnectionProfiles { get; } = new();
     public ObservableCollection<EntityDTO> AvailableEntities { get; } = new();
     public ObservableCollection<ViewDTO> AvailableViews { get; } = new();
     public ObservableCollection<CheckableItem<AuditOperation>> OperationsList { get; } = new();
@@ -94,11 +109,16 @@ public partial class MainViewModel : ObservableObject
     public ObservableCollection<AuditExportRow> PreviewRecords { get; } = new();
     public bool IsManualTimeEnabled => !IsFullDay;
 
-    public MainViewModel(IAuditService auditService, IMetadataService metadataService, IDataService dataService)
+    public MainViewModel(
+        IAuditService auditService,
+        IMetadataService metadataService,
+        IDataService dataService,
+        ConnectionManagerService connectionManagerService)
     {
         _auditService = auditService;
         _metadataService = metadataService;
         _dataService = dataService;
+        _connectionManagerService = connectionManagerService;
 
         foreach (var operation in AuditMetadataService.GetAuditOperations())
         {
@@ -109,6 +129,8 @@ public partial class MainViewModel : ObservableObject
         {
             ActionsList.Add(action);
         }
+
+        _ = LoadConnectionProfilesAsync();
     }
 
     private bool CanConnect() => !IsBusy;
@@ -134,6 +156,9 @@ public partial class MainViewModel : ObservableObject
             StatusMessage = IsConnected
                 ? $"Conectado a: {_auditService.OrganizationName}"
                 : "No se pudo conectar.";
+
+            await SaveOrUpdateCurrentProfileAsync(markAsUsed: true);
+            await LoadConnectionProfilesAsync();
 
             await LoadAuditableEntitiesAsync();
             await SearchUsersAsync(string.Empty);
@@ -173,6 +198,7 @@ public partial class MainViewModel : ObservableObject
                 SelectedOperations = GetSelectedOperations(),
                 SelectedActions = GetSelectedActions(),
                 SelectedAttributes = GetSelectedAttributes(),
+                SearchValue = SearchValue,
                 StartDate = BuildStartDateTime(),
                 EndDate = BuildEndDateTime()
             };
@@ -267,6 +293,18 @@ public partial class MainViewModel : ObservableObject
         }
 
         ManualFetchXml = value.FetchXml;
+    }
+
+    partial void OnSelectedConnectionProfileChanged(ConnectionProfile? value)
+    {
+        if (value is null)
+        {
+            return;
+        }
+
+        ProfileName = value.Name;
+        ProfileUserName = value.UserName;
+        CrmUrl = value.Url;
     }
 
     private async Task LoadAuditableEntitiesAsync()
@@ -403,6 +441,38 @@ public partial class MainViewModel : ObservableObject
         {
             item.IsSelected = false;
         }
+    }
+
+    [RelayCommand]
+    private async Task SaveProfileAsync()
+    {
+        await SaveOrUpdateCurrentProfileAsync(markAsUsed: false);
+        await LoadConnectionProfilesAsync();
+        StatusMessage = "Perfil guardado correctamente.";
+    }
+
+    private bool CanDeleteProfile() => SelectedConnectionProfile is not null;
+
+    [RelayCommand(CanExecute = nameof(CanDeleteProfile))]
+    private async Task DeleteProfileAsync()
+    {
+        if (SelectedConnectionProfile is null)
+        {
+            return;
+        }
+
+        var name = SelectedConnectionProfile.Name;
+        await _connectionManagerService.DeleteProfileAsync(name);
+        await LoadConnectionProfilesAsync();
+
+        if (string.Equals(ProfileName, name, StringComparison.OrdinalIgnoreCase))
+        {
+            ProfileName = string.Empty;
+            ProfileUserName = string.Empty;
+        }
+
+        SelectedConnectionProfile = null;
+        StatusMessage = "Perfil eliminado.";
     }
 
     private bool CanCopyGuid()
@@ -542,5 +612,50 @@ public partial class MainViewModel : ObservableObject
         }
 
         return fallback;
+    }
+
+    private async Task LoadConnectionProfilesAsync()
+    {
+        var profiles = await _connectionManagerService.GetProfilesAsync();
+        ConnectionProfiles.Clear();
+
+        foreach (var profile in profiles)
+        {
+            ConnectionProfiles.Add(profile);
+        }
+    }
+
+    private async Task SaveOrUpdateCurrentProfileAsync(bool markAsUsed)
+    {
+        if (string.IsNullOrWhiteSpace(CrmUrl))
+        {
+            return;
+        }
+
+        var normalizedName = string.IsNullOrWhiteSpace(ProfileName)
+            ? BuildProfileNameFromUrl(CrmUrl)
+            : ProfileName.Trim();
+
+        var profile = new ConnectionProfile
+        {
+            Name = normalizedName,
+            Url = CrmUrl.Trim(),
+            UserName = ProfileUserName.Trim(),
+            LastUsed = markAsUsed ? DateTime.UtcNow : SelectedConnectionProfile?.LastUsed ?? DateTime.UtcNow
+        };
+
+        await _connectionManagerService.SaveProfileAsync(profile);
+        ProfileName = profile.Name;
+        SelectedConnectionProfile = profile;
+    }
+
+    private static string BuildProfileNameFromUrl(string url)
+    {
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return uri.Host;
+        }
+
+        return "Perfil";
     }
 }

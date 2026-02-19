@@ -206,12 +206,14 @@ public class AuditService : IAuditService
             SelectedOperations = request.SelectedOperations,
             SelectedActions = request.SelectedActions,
             SelectedAttributes = request.SelectedAttributes,
+            SearchValue = request.SearchValue,
             RecordId = request.RecordId,
             StartDate = request.StartDate,
             EndDate = request.EndDate
         };
 
         var selectedAttributes = new HashSet<string>(request.SelectedAttributes, StringComparer.OrdinalIgnoreCase);
+        var searchValue = request.SearchValue?.Trim() ?? string.Empty;
 
         while (moreRecords && !cancellationToken.IsCancellationRequested && totalWritten < request.MaxRecords)
         {
@@ -244,6 +246,12 @@ public class AuditService : IAuditService
                 }
 
                 var row = await BuildExportRowAsync(entity, change, cancellationToken);
+
+                if (!MatchesSearchValue(row, searchValue))
+                {
+                    continue;
+                }
+
                 totalWritten++;
                 updateCount(totalWritten);
                 yield return row;
@@ -599,6 +607,19 @@ public class AuditService : IAuditService
         }
 
         return null;
+    }
+
+    private static bool MatchesSearchValue(AuditExportRow row, string searchValue)
+    {
+        if (string.IsNullOrWhiteSpace(searchValue))
+        {
+            return true;
+        }
+
+        return (!string.IsNullOrWhiteSpace(row.NewValue)
+                && row.NewValue.Contains(searchValue, StringComparison.OrdinalIgnoreCase))
+            || (!string.IsNullOrWhiteSpace(row.OldValue)
+                && row.OldValue.Contains(searchValue, StringComparison.OrdinalIgnoreCase));
     }
 
     private static string GetOperationName(int operationCode)
