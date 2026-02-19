@@ -10,6 +10,7 @@ namespace AuditHistoryExtractorPro.Desktop.ViewModels;
 public partial class MainViewModel : ObservableObject
 {
     private readonly IAuditService _auditService;
+    private readonly List<LookupItem> _allUsers = new();
 
     [ObservableProperty]
     private bool isConnected;
@@ -32,6 +33,12 @@ public partial class MainViewModel : ObservableObject
     private string entityName = "account";
 
     [ObservableProperty]
+    private DateTime? startDate;
+
+    [ObservableProperty]
+    private DateTime? endDate;
+
+    [ObservableProperty]
     private string outputPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "AuditHistoryExtractorPro",
@@ -47,9 +54,25 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private OperationFilter selectedOperation = OperationFilter.Update;
 
+    [ObservableProperty]
+    private string userSearchText = string.Empty;
+
+    [ObservableProperty]
+    private bool includeCreate = true;
+
+    [ObservableProperty]
+    private bool includeUpdate = true;
+
+    [ObservableProperty]
+    private bool includeDelete = true;
+
+    [ObservableProperty]
+    private string manualFetchXml = string.Empty;
+
     public IReadOnlyList<DateRangeFilter> DateRangeOptions { get; } = Enum.GetValues<DateRangeFilter>();
     public IReadOnlyList<OperationFilter> OperationOptions { get; } = Enum.GetValues<OperationFilter>();
     public ObservableCollection<LookupItem> AvailableUsers { get; } = new();
+    public ObservableCollection<AuditExportRow> PreviewRecords { get; } = new();
 
     public MainViewModel(IAuditService auditService)
     {
@@ -81,9 +104,12 @@ public partial class MainViewModel : ObservableObject
                 : "No se pudo conectar.";
 
             AvailableUsers.Clear();
+            _allUsers.Clear();
+
             var users = await _auditService.GetUsersAsync();
             foreach (var user in users)
             {
+                _allUsers.Add(user);
                 AvailableUsers.Add(user);
             }
 
@@ -119,12 +145,14 @@ public partial class MainViewModel : ObservableObject
             {
                 EntityName = EntityName,
                 MaxRecords = 10000,
-                IncludeCreate = true,
-                IncludeUpdate = true,
-                IncludeDelete = true,
+                IncludeCreate = IncludeCreate,
+                IncludeUpdate = IncludeUpdate,
+                IncludeDelete = IncludeDelete,
                 SelectedDateRange = SelectedDateRange,
                 SelectedUser = SelectedUser,
-                SelectedOperation = SelectedOperation
+                SelectedOperation = ResolveSelectedOperation(),
+                StartDate = StartDate,
+                EndDate = EndDate
             };
 
             var progress = new Progress<string>(message =>
@@ -156,6 +184,23 @@ public partial class MainViewModel : ObservableObject
             OutputPath = result.OutputFilePath;
             StatusMessage = result.Message;
             ProgressValue = 100;
+
+            PreviewRecords.Clear();
+            PreviewRecords.Add(new AuditExportRow
+            {
+                AuditId = "N/A",
+                CreatedOn = DateTime.UtcNow.ToString("O"),
+                EntityName = EntityName,
+                RecordId = "N/A",
+                ActionCode = 0,
+                ActionName = "Export",
+                UserId = SelectedUser?.Id.ToString() ?? string.Empty,
+                UserName = SelectedUser?.Name ?? string.Empty,
+                TransactionId = "N/A",
+                ChangedField = "Archivo generado",
+                OldValue = string.Empty,
+                NewValue = result.OutputFilePath
+            });
         }
         catch (Exception ex)
         {
@@ -166,5 +211,44 @@ public partial class MainViewModel : ObservableObject
         {
             IsBusy = false;
         }
+    }
+
+    partial void OnUserSearchTextChanged(string value)
+    {
+        if (_allUsers.Count == 0)
+        {
+            return;
+        }
+
+        var query = value?.Trim() ?? string.Empty;
+        var filtered = string.IsNullOrWhiteSpace(query)
+            ? _allUsers
+            : _allUsers.Where(u => u.Name.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
+
+        var currentSelection = SelectedUser;
+        AvailableUsers.Clear();
+        foreach (var user in filtered)
+        {
+            AvailableUsers.Add(user);
+        }
+
+        if (currentSelection is not null && AvailableUsers.Any(u => u.Id == currentSelection.Id))
+        {
+            SelectedUser = AvailableUsers.First(u => u.Id == currentSelection.Id);
+        }
+        else if (AvailableUsers.Count > 0)
+        {
+            SelectedUser = AvailableUsers[0];
+        }
+    }
+
+    private OperationFilter? ResolveSelectedOperation()
+    {
+        var selected = new List<OperationFilter>();
+        if (IncludeCreate) selected.Add(OperationFilter.Create);
+        if (IncludeUpdate) selected.Add(OperationFilter.Update);
+        if (IncludeDelete) selected.Add(OperationFilter.Delete);
+
+        return selected.Count == 1 ? selected[0] : null;
     }
 }
