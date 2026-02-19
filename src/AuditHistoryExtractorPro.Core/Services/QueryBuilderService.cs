@@ -23,6 +23,7 @@ public class QueryBuilderService
                 "objectid",
                 "objecttypecode",
                 "userid",
+                "callinguserid",
                 "transactionid",
                 "changedata"),
             Criteria = new FilterExpression(LogicalOperator.And),
@@ -106,6 +107,7 @@ public class QueryBuilderService
         sb.Append("    <attribute name='objectid'/>\n");
         sb.Append("    <attribute name='objecttypecode'/>\n");
         sb.Append("    <attribute name='userid'/>\n");
+        sb.Append("    <attribute name='callinguserid'/>\n");
         sb.Append("    <attribute name='transactionid'/>\n");
         sb.Append("    <attribute name='changedata'/>\n");
         sb.Append("    <filter type='and'>\n");

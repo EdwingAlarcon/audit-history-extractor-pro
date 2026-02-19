@@ -14,6 +14,7 @@ public class AuditRecord
     public string Operation { get; set; } = string.Empty;
     public string UserId { get; set; } = string.Empty;
     public string UserName { get; set; } = string.Empty;
+    public string RealActor { get; set; } = string.Empty;
     public Dictionary<string, AuditFieldChange> Changes { get; set; } = new();
     public string? TransactionId { get; set; }
     public Dictionary<string, object> AdditionalData { get; set; } = new();

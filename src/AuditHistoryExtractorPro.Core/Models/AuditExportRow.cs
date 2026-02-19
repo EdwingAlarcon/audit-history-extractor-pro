@@ -12,6 +12,7 @@ public class AuditExportRow
     public string ActionName { get; init; } = string.Empty;
     public string UserId { get; init; } = string.Empty;
     public string UserName { get; init; } = string.Empty;
+    public string RealActor { get; init; } = string.Empty;
     public string TransactionId { get; init; } = string.Empty;
     public string ChangedField { get; init; } = string.Empty;
     public string OldValue { get; init; } = string.Empty;

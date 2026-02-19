@@ -20,6 +20,7 @@ public class AuditService : IAuditService
     private readonly AuthHelper _authHelper;
     private readonly QueryBuilderService _queryBuilderService;
     private readonly IExcelExportService _excelExportService;
+    private readonly IMetadataTranslationService _metadataTranslationService;
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
     private readonly SemaphoreSlim _nameResolutionLock = new(1, 1);
     private DataverseServiceClient? _serviceClient;
@@ -38,11 +39,23 @@ public class AuditService : IAuditService
     public AuditService(
         AuthHelper authHelper,
         QueryBuilderService queryBuilderService,
-        IExcelExportService excelExportService)
+        IExcelExportService excelExportService,
+        IMetadataTranslationService metadataTranslationService)
     {
         _authHelper = authHelper;
         _queryBuilderService = queryBuilderService;
         _excelExportService = excelExportService;
+        _metadataTranslationService = metadataTranslationService;
+    }
+
+    public async Task WarmupEntityMetadataAsync(string entityLogicalName, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(entityLogicalName))
+        {
+            return;
+        }
+
+        await LoadEntityMetadataContextAsync(entityLogicalName.Trim(), cancellationToken);
     }
 
     public async Task ConnectAsync(ConnectionSettings settings, CancellationToken cancellationToken = default)
@@ -289,10 +302,34 @@ public class AuditService : IAuditService
             ?? string.Empty;
         var actionCode = entity.GetAttributeValue<OptionSetValue>("action")?.Value ?? 0;
         var userRef = entity.GetAttributeValue<EntityReference>("userid");
+        var callingUserRef = entity.GetAttributeValue<EntityReference>("callinguserid");
         var transactionId = entity.GetAttributeValue<Guid?>("transactionid");
         var fieldName = parsedChange.field;
         var oldValue = await ResolveNameIfReferenceAsync(parsedChange.oldValue, fieldName, cancellationToken);
         var newValue = await ResolveNameIfReferenceAsync(parsedChange.newValue, fieldName, cancellationToken);
+
+        var userName = !string.IsNullOrWhiteSpace(userRef?.Name)
+            ? userRef.Name
+            : (userRef?.Id is Guid userId
+                ? await ResolveEntityPrimaryNameAsync("systemuser", userId, cancellationToken)
+                : null)
+            ?? string.Empty;
+
+        var realActor = userName;
+        if (callingUserRef?.Id is Guid callingUserId
+            && userRef?.Id is Guid userIdToCompare
+            && callingUserId != Guid.Empty
+            && callingUserId != userIdToCompare)
+        {
+            var callingUserName = !string.IsNullOrWhiteSpace(callingUserRef.Name)
+                ? callingUserRef.Name
+                : await ResolveEntityPrimaryNameAsync("systemuser", callingUserId, cancellationToken)
+                    ?? callingUserId.ToString("D");
+
+            realActor = string.IsNullOrWhiteSpace(userName)
+                ? $"(via {callingUserName})"
+                : $"{userName} (via {callingUserName})";
+        }
 
         var recordId = objectId?.ToString("D") ?? string.Empty;
 
@@ -307,7 +344,8 @@ public class AuditService : IAuditService
             ActionCode = actionCode,
             ActionName = GetOperationName(actionCode),
             UserId = userRef?.Id.ToString() ?? string.Empty,
-            UserName = userRef?.Name ?? string.Empty,
+            UserName = userName,
+            RealActor = realActor,
             TransactionId = transactionId?.ToString() ?? string.Empty,
             ChangedField = fieldName,
             OldValue = oldValue,
@@ -351,19 +389,6 @@ public class AuditService : IAuditService
             var oldValue = firstAttribute.Element("oldValue")?.Value ?? string.Empty;
             var newValue = firstAttribute.Element("newValue")?.Value ?? string.Empty;
 
-            if (_optionSetCache.TryGetValue(fieldName, out var labels))
-            {
-                if (int.TryParse(oldValue, out var oldCode) && labels.TryGetValue(oldCode, out var oldLabel))
-                {
-                    oldValue = oldLabel;
-                }
-
-                if (int.TryParse(newValue, out var newCode) && labels.TryGetValue(newCode, out var newLabel))
-                {
-                    newValue = newLabel;
-                }
-            }
-
             return (fieldName, oldValue, newValue);
         }
         catch
@@ -392,6 +417,8 @@ public class AuditService : IAuditService
         };
 
         var response = (RetrieveEntityResponse)await _serviceClient.ExecuteAsync(request, cancellationToken);
+        _metadataTranslationService.CacheEntityMetadata(entityName, response.EntityMetadata);
+
         var cache = new Dictionary<string, Dictionary<int, string>>(StringComparer.OrdinalIgnoreCase);
         var attributeByColumnNumber = new Dictionary<int, string>();
         var lookupTargets = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

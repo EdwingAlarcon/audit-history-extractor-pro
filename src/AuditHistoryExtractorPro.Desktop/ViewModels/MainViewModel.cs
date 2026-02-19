@@ -161,6 +161,7 @@ public partial class MainViewModel : ObservableObject
             await LoadConnectionProfilesAsync();
 
             await LoadAuditableEntitiesAsync();
+            await _auditService.WarmupEntityMetadataAsync(EntityName);
             await SearchUsersAsync(string.Empty);
         }
         catch (Exception ex)
@@ -281,6 +282,7 @@ public partial class MainViewModel : ObservableObject
         }
 
         EntityName = value.LogicalName;
+        _ = _auditService.WarmupEntityMetadataAsync(value.LogicalName);
         _ = LoadSystemViewsAsync(value.LogicalName);
         _ = LoadEntityAttributesAsync(value.LogicalName);
     }

@@ -7,6 +7,13 @@ namespace AuditHistoryExtractorPro.Core.Services;
 
 public class ExcelExportService : IExcelExportService
 {
+    private readonly IMetadataTranslationService _metadataTranslationService;
+
+    public ExcelExportService(IMetadataTranslationService metadataTranslationService)
+    {
+        _metadataTranslationService = metadataTranslationService;
+    }
+
     public async Task ExportAsync(
         string outputFilePath,
         IAsyncEnumerable<AuditExportRow> rows,
@@ -59,7 +66,7 @@ public class ExcelExportService : IExcelExportService
         writer.WriteStartElement(new Row());
         var headers = new[]
         {
-            "AuditId", "Record ID", "LogicalName", "EntityName", "RecordUrl", "CreatedOn", "ActionCode", "ActionName", "UserId", "UserName", "TransactionId", "ChangedField", "OldValue", "NewValue"
+            "AuditId", "Record ID", "LogicalName", "EntityName", "RecordUrl", "CreatedOn", "ActionCode", "ActionName", "UserId", "UserName", "RealActor", "TransactionId", "ChangedField", "OldValue", "NewValue"
         };
 
         foreach (var header in headers)
@@ -70,7 +77,7 @@ public class ExcelExportService : IExcelExportService
         writer.WriteEndElement();
     }
 
-    private static void WriteDataRow(OpenXmlWriter writer, AuditExportRow row)
+    private void WriteDataRow(OpenXmlWriter writer, AuditExportRow row)
     {
         var rowStyle = row.ActionName switch
         {
@@ -78,6 +85,9 @@ public class ExcelExportService : IExcelExportService
             "Delete" => 2u,
             _ => 0u
         };
+
+        var translatedOldValue = _metadataTranslationService.TranslateValue(row.LogicalName, row.ChangedField, row.OldValue);
+        var translatedNewValue = _metadataTranslationService.TranslateValue(row.LogicalName, row.ChangedField, row.NewValue);
 
         writer.WriteStartElement(new Row());
 
@@ -91,12 +101,13 @@ public class ExcelExportService : IExcelExportService
         WriteCell(writer, row.ActionName, rowStyle);
         WriteCell(writer, row.UserId, rowStyle);
         WriteCell(writer, row.UserName, rowStyle);
+        WriteCell(writer, row.RealActor, rowStyle);
         WriteCell(writer, row.TransactionId, rowStyle);
         WriteCell(writer, row.ChangedField, rowStyle);
-        WriteCell(writer, row.OldValue, rowStyle);
+        WriteCell(writer, translatedOldValue, rowStyle);
 
         var changedValueStyle = row.ActionName == "Update" ? 3u : rowStyle;
-        WriteCell(writer, row.NewValue, changedValueStyle);
+        WriteCell(writer, translatedNewValue, changedValueStyle);
 
         writer.WriteEndElement();
     }
