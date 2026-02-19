@@ -59,7 +59,7 @@ public class ExcelExportService : IExcelExportService
         writer.WriteStartElement(new Row());
         var headers = new[]
         {
-            "AuditId", "CreatedOn", "EntityName", "RecordId", "ActionCode", "ActionName", "UserId", "UserName", "TransactionId", "ChangedField", "OldValue", "NewValue"
+            "AuditId", "Record ID", "LogicalName", "EntityName", "RecordUrl", "CreatedOn", "ActionCode", "ActionName", "UserId", "UserName", "TransactionId", "ChangedField", "OldValue", "NewValue"
         };
 
         foreach (var header in headers)
@@ -82,9 +82,11 @@ public class ExcelExportService : IExcelExportService
         writer.WriteStartElement(new Row());
 
         WriteCell(writer, row.AuditId, rowStyle);
-        WriteCell(writer, row.CreatedOn, rowStyle);
-        WriteCell(writer, row.EntityName, rowStyle);
         WriteCell(writer, row.RecordId, rowStyle);
+        WriteCell(writer, row.LogicalName, rowStyle);
+        WriteCell(writer, row.EntityName, rowStyle);
+        WriteCell(writer, row.RecordUrl, rowStyle);
+        WriteCell(writer, row.CreatedOn, rowStyle);
         WriteCell(writer, row.ActionCode.ToString(), rowStyle);
         WriteCell(writer, row.ActionName, rowStyle);
         WriteCell(writer, row.UserId, rowStyle);

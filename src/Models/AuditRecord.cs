@@ -9,6 +9,8 @@ public class AuditRecord
     public DateTime CreatedOn { get; set; }
     public string EntityName { get; set; } = string.Empty;
     public Guid RecordId { get; set; }
+    public string LogicalName { get; set; } = string.Empty;
+    public string RecordUrl { get; set; } = string.Empty;
     public string Operation { get; set; } = string.Empty;
     public string UserId { get; set; } = string.Empty;
     public string UserName { get; set; } = string.Empty;

@@ -208,14 +208,30 @@
                         Padding="10"
                         Background="White">
                     <DataGrid IsReadOnly="True"
-                              AutoGenerateColumns="True"
+                              AutoGenerateColumns="False"
                               ItemsSource="{Binding PreviewRecords}"
+                              SelectedItem="{Binding SelectedPreviewRecord, Mode=TwoWay}"
                               CanUserAddRows="False"
                               CanUserDeleteRows="False"
                               AlternatingRowBackground="#FAF9F8"
                               RowBackground="White"
                               GridLinesVisibility="Horizontal"
-                              BorderThickness="0" />
+                              BorderThickness="0">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="GUID" Binding="{Binding RecordId}" Width="220" />
+                            <DataGridTextColumn Header="Entidad" Binding="{Binding EntityName}" Width="120" />
+                            <DataGridTextColumn Header="Acción" Binding="{Binding ActionName}" Width="90" />
+                            <DataGridTextColumn Header="Campo" Binding="{Binding ChangedField}" Width="140" />
+                            <DataGridTextColumn Header="Valor Anterior" Binding="{Binding OldValue}" Width="*" />
+                            <DataGridTextColumn Header="Valor Nuevo" Binding="{Binding NewValue}" Width="*" />
+                        </DataGrid.Columns>
+                        <DataGrid.ContextMenu>
+                            <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                                <MenuItem Header="Copiar GUID" Command="{Binding CopyGuidCommand}" />
+                                <MenuItem Header="Abrir Registro" Command="{Binding OpenRecordCommand}" />
+                            </ContextMenu>
+                        </DataGrid.ContextMenu>
+                    </DataGrid>
                 </Border>
 
                 <StackPanel Grid.Row="1"

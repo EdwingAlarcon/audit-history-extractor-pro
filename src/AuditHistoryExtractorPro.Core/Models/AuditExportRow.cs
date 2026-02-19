@@ -6,6 +6,8 @@ public class AuditExportRow
     public string CreatedOn { get; init; } = string.Empty;
     public string EntityName { get; init; } = string.Empty;
     public string RecordId { get; init; } = string.Empty;
+    public string LogicalName { get; init; } = string.Empty;
+    public string RecordUrl { get; init; } = string.Empty;
     public int ActionCode { get; init; }
     public string ActionName { get; init; } = string.Empty;
     public string UserId { get; init; } = string.Empty;

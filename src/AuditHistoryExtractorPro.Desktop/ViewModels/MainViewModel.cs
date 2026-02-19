@@ -5,8 +5,10 @@ using AuditHistoryExtractorPro.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Windows;
 
 namespace AuditHistoryExtractorPro.Desktop.ViewModels;
 
@@ -76,6 +78,11 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     private string manualFetchXml = string.Empty;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(CopyGuidCommand))]
+    [NotifyCanExecuteChangedFor(nameof(OpenRecordCommand))]
+    private AuditExportRow? selectedPreviewRecord;
 
     public IReadOnlyList<DateRangeFilter> DateRangeOptions { get; } = Enum.GetValues<DateRangeFilter>();
     public ObservableCollection<LookupItem> AvailableUsers { get; } = new();
@@ -207,6 +214,8 @@ public partial class MainViewModel : ObservableObject
                 CreatedOn = DateTime.UtcNow.ToString("O"),
                 EntityName = EntityName,
                 RecordId = "N/A",
+                LogicalName = EntityName,
+                RecordUrl = string.Empty,
                 ActionCode = 0,
                 ActionName = "Export",
                 UserId = SelectedUser?.Id.ToString() ?? string.Empty,
@@ -394,6 +403,46 @@ public partial class MainViewModel : ObservableObject
         {
             item.IsSelected = false;
         }
+    }
+
+    private bool CanCopyGuid()
+    {
+        return SelectedPreviewRecord is not null
+            && !string.IsNullOrWhiteSpace(SelectedPreviewRecord.RecordId)
+            && !string.Equals(SelectedPreviewRecord.RecordId, "N/A", StringComparison.OrdinalIgnoreCase);
+    }
+
+    [RelayCommand(CanExecute = nameof(CanCopyGuid))]
+    private void CopyGuid()
+    {
+        if (SelectedPreviewRecord is null)
+        {
+            return;
+        }
+
+        Clipboard.SetText(SelectedPreviewRecord.RecordId);
+        StatusMessage = $"GUID copiado: {SelectedPreviewRecord.RecordId}";
+    }
+
+    private bool CanOpenRecord()
+    {
+        return SelectedPreviewRecord is not null
+            && !string.IsNullOrWhiteSpace(SelectedPreviewRecord.RecordUrl);
+    }
+
+    [RelayCommand(CanExecute = nameof(CanOpenRecord))]
+    private void OpenRecord()
+    {
+        if (SelectedPreviewRecord is null || string.IsNullOrWhiteSpace(SelectedPreviewRecord.RecordUrl))
+        {
+            return;
+        }
+
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = SelectedPreviewRecord.RecordUrl,
+            UseShellExecute = true
+        });
     }
 
     private async Task SearchUsersAsync(string? query)

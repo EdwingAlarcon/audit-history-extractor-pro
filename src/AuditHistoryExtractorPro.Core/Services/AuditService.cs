@@ -8,6 +8,7 @@ using Microsoft.Xrm.Sdk.Messages;
 using Microsoft.Xrm.Sdk.Metadata;
 using Microsoft.Xrm.Sdk.Query;
 using System.Globalization;
+using System.Net;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
@@ -273,8 +274,11 @@ public class AuditService : IAuditService
     {
         var auditId = entity.GetAttributeValue<Guid>("auditid");
         var createdOn = entity.GetAttributeValue<DateTime>("createdon");
-        var objectId = entity.GetAttributeValue<EntityReference>("objectid")?.Id;
-        var objectType = entity.GetAttributeValue<string>("objecttypecode") ?? string.Empty;
+        var objectReference = entity.GetAttributeValue<EntityReference>("objectid");
+        var objectId = objectReference?.Id;
+        var logicalName = objectReference?.LogicalName
+            ?? entity.GetAttributeValue<string>("objecttypecode")
+            ?? string.Empty;
         var actionCode = entity.GetAttributeValue<OptionSetValue>("action")?.Value ?? 0;
         var userRef = entity.GetAttributeValue<EntityReference>("userid");
         var transactionId = entity.GetAttributeValue<Guid?>("transactionid");
@@ -282,12 +286,16 @@ public class AuditService : IAuditService
         var oldValue = await ResolveNameIfReferenceAsync(parsedChange.oldValue, fieldName, cancellationToken);
         var newValue = await ResolveNameIfReferenceAsync(parsedChange.newValue, fieldName, cancellationToken);
 
+        var recordId = objectId?.ToString("D") ?? string.Empty;
+
         return new AuditExportRow
         {
             AuditId = auditId.ToString(),
             CreatedOn = createdOn == default ? string.Empty : createdOn.ToUniversalTime().ToString("O"),
-            EntityName = objectType,
-            RecordId = objectId?.ToString() ?? string.Empty,
+            EntityName = logicalName,
+            RecordId = recordId,
+            LogicalName = logicalName,
+            RecordUrl = BuildRecordUrl(logicalName, recordId),
             ActionCode = actionCode,
             ActionName = GetOperationName(actionCode),
             UserId = userRef?.Id.ToString() ?? string.Empty,
@@ -297,6 +305,22 @@ public class AuditService : IAuditService
             OldValue = oldValue,
             NewValue = newValue
         };
+    }
+
+    private string BuildRecordUrl(string logicalName, string recordId)
+    {
+        if (string.IsNullOrWhiteSpace(logicalName) || string.IsNullOrWhiteSpace(recordId))
+        {
+            return string.Empty;
+        }
+
+        var baseUrl = _authenticationConfiguration?.EnvironmentUrl?.TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(baseUrl))
+        {
+            return string.Empty;
+        }
+
+        return $"{baseUrl}/main.aspx?etn={WebUtility.UrlEncode(logicalName)}&id={WebUtility.UrlEncode(recordId)}&pagetype=entityrecord";
     }
 
     private (string field, string oldValue, string newValue) ParseChangeData(string changeData)
