@@ -3,171 +3,197 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:AuditHistoryExtractorPro.Desktop"
         mc:Ignorable="d"
         Title="Audit History Extractor Pro - Desktop"
-        Height="680"
-        Width="1120"
-        MinHeight="620"
-        MinWidth="960"
+        Height="760"
+        Width="1260"
+        MinHeight="680"
+        MinWidth="1100"
         WindowStartupLocation="CenterScreen"
         Background="White">
+
+    <Window.Resources>
+        <SolidColorBrush x:Key="MsBlueBrush" Color="#00A4EF" />
+        <SolidColorBrush x:Key="MsGreenBrush" Color="#7FBA00" />
+        <SolidColorBrush x:Key="MsGrayBrush" Color="#F3F2F1" />
+        <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+
+        <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="#323130" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+
+        <Style x:Key="PrimaryButtonStyle" TargetType="Button">
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Padding" Value="18,9" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+    </Window.Resources>
+
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Border Grid.Row="0" Background="#F3F2F1" Padding="20,14" BorderBrush="#E1DFDD" BorderThickness="0,0,0,1">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
+        <Grid Grid.Row="0" Margin="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="3*" />
+                <ColumnDefinition Width="7*" />
+            </Grid.ColumnDefinitions>
 
-                <StackPanel Orientation="Vertical">
-                    <TextBlock Text="Audit History Extractor Pro" FontSize="22" FontWeight="SemiBold" Foreground="#323130" />
-                    <TextBlock Text="Cliente nativo WPF (.NET 8)" FontSize="12" Foreground="#605E5C" Margin="0,4,0,0" />
-                </StackPanel>
+            <Border Grid.Column="0"
+                    Background="{StaticResource MsGrayBrush}"
+                    BorderBrush="#E1DFDD"
+                    BorderThickness="1"
+                    Padding="14"
+                    CornerRadius="6"
+                    Margin="0,0,12,0">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock Text="Filtros"
+                                   FontSize="18"
+                                   FontWeight="SemiBold"
+                                   Foreground="#323130"
+                                   Margin="0,0,0,14" />
 
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0,0,0">
-                    <Ellipse Width="12" Height="12" Margin="0,0,8,0">
-                        <Ellipse.Style>
-                            <Style TargetType="Ellipse">
-                                <Setter Property="Fill" Value="#F25022" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsConnected}" Value="True">
-                                        <Setter Property="Fill" Value="#7FBA00" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Ellipse.Style>
-                    </Ellipse>
-                    <TextBlock VerticalAlignment="Center" Foreground="#323130" FontWeight="SemiBold">
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Text" Value="Desconectado" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsConnected}" Value="True">
-                                        <Setter Property="Text" Value="Conectado" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
+                        <TextBlock Text="Entidad" Style="{StaticResource SectionTitleStyle}" />
+                        <ComboBox x:Name="EntitySelector"
+                                  IsEditable="True"
+                                  IsTextSearchEnabled="True"
+                                  Text="{Binding EntityName, UpdateSourceTrigger=PropertyChanged}"
+                                  Height="34"
+                                  Margin="0,0,0,14" />
+
+                        <GroupBox Header="Rango de Fechas" Margin="0,0,0,14" Padding="10,8">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock Text="Desde" VerticalAlignment="Center" Margin="0,0,10,8" />
+                                <DatePicker Grid.Column="1" SelectedDate="{Binding StartDate}" Margin="0,0,0,8" />
+
+                                <TextBlock Grid.Row="1" Text="Hasta" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                <DatePicker Grid.Row="1" Grid.Column="1" SelectedDate="{Binding EndDate}" />
+                            </Grid>
+                        </GroupBox>
+
+                        <GroupBox Header="Filtros Opcionales" Margin="0,0,0,14" Padding="10,8">
+                            <StackPanel>
+                                <TextBlock Text="Buscar usuario" Style="{StaticResource SectionTitleStyle}" Margin="0,0,0,6" />
+                                <TextBox Height="32"
+                                         Margin="0,0,0,10"
+                                         Text="{Binding UserSearchText, UpdateSourceTrigger=PropertyChanged}" />
+
+                                <TextBlock Text="Acciones" Style="{StaticResource SectionTitleStyle}" Margin="0,0,0,6" />
+                                <StackPanel Orientation="Horizontal">
+                                    <CheckBox Content="Create" IsChecked="{Binding IncludeCreate}" Margin="0,0,12,0" />
+                                    <CheckBox Content="Update" IsChecked="{Binding IncludeUpdate}" Margin="0,0,12,0" />
+                                    <CheckBox Content="Delete" IsChecked="{Binding IncludeDelete}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <Expander Header="Avanzado" IsExpanded="False" Margin="0,0,0,12">
+                            <StackPanel Margin="0,8,0,0">
+                                <TextBlock Text="FetchXML Manual"
+                                           Style="{StaticResource SectionTitleStyle}"
+                                           Margin="0,0,0,6" />
+                                <TextBox MinHeight="130"
+                                         TextWrapping="Wrap"
+                                         AcceptsReturn="True"
+                                         VerticalScrollBarVisibility="Auto"
+                                         Text="{Binding ManualFetchXml, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                        </Expander>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0"
+                        BorderBrush="#E1DFDD"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="10"
+                        Background="White">
+                    <DataGrid IsReadOnly="True"
+                              AutoGenerateColumns="True"
+                              ItemsSource="{Binding PreviewRecords}"
+                              CanUserAddRows="False"
+                              CanUserDeleteRows="False"
+                              AlternatingRowBackground="#FAF9F8"
+                              RowBackground="White"
+                              GridLinesVisibility="Horizontal"
+                              BorderThickness="0" />
+                </Border>
+
+                <StackPanel Grid.Row="1"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Right"
+                            Margin="0,12,0,0">
+                    <Button x:Name="btnConnect"
+                            Content="Conectar"
+                            Command="{Binding ConnectCommand}"
+                            Background="{StaticResource MsBlueBrush}"
+                            Style="{StaticResource PrimaryButtonStyle}" />
+
+                    <Button x:Name="btnExport"
+                            Content="Exportar"
+                            Command="{Binding ExtractCommand}"
+                            Background="{StaticResource MsGreenBrush}"
+                            Style="{StaticResource PrimaryButtonStyle}"
+                            Margin="0"
+                            IsEnabled="{Binding ElementName=ResultsGridProxy, Path=HasItems}" />
+
+                    <DataGrid x:Name="ResultsGridProxy"
+                              Visibility="Collapsed"
+                              ItemsSource="{Binding PreviewRecords}" />
                 </StackPanel>
             </Grid>
-        </Border>
-
-        <Grid Grid.Row="1" Margin="20">
-            <TabControl>
-                <TabItem Header="Configuración">
-                    <Grid Margin="14">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="*" />
-                        </Grid.RowDefinitions>
-
-                        <StackPanel Grid.Row="0" Margin="0,0,0,12">
-                            <TextBlock Text="URL Dataverse" FontWeight="SemiBold" Foreground="#323130" Margin="0,0,0,6" />
-                            <TextBox Text="{Binding CrmUrl, UpdateSourceTrigger=PropertyChanged}" MinWidth="520" Height="34" Padding="8,6" />
-                        </StackPanel>
-
-                        <StackPanel Grid.Row="1" Margin="0,0,0,12">
-                            <TextBlock Text="Entidad" FontWeight="SemiBold" Foreground="#323130" Margin="0,0,0,6" />
-                            <TextBox Text="{Binding EntityName, UpdateSourceTrigger=PropertyChanged}" MinWidth="300" Height="34" Padding="8,6" />
-                        </StackPanel>
-
-                        <Grid Grid.Row="2" Margin="0,0,0,12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-
-                            <StackPanel Grid.Column="0" Margin="0,0,8,0">
-                                <TextBlock Text="Rango de Fecha" FontWeight="SemiBold" Foreground="#323130" Margin="0,0,0,6" />
-                                <ComboBox ItemsSource="{Binding DateRangeOptions}"
-                                          SelectedItem="{Binding SelectedDateRange}"
-                                          Height="34" />
-                            </StackPanel>
-
-                            <StackPanel Grid.Column="1" Margin="8,0">
-                                <TextBlock Text="Usuario" FontWeight="SemiBold" Foreground="#323130" Margin="0,0,0,6" />
-                                <ComboBox ItemsSource="{Binding AvailableUsers}"
-                                          SelectedItem="{Binding SelectedUser}"
-                                          DisplayMemberPath="Name"
-                                          Height="34" />
-                            </StackPanel>
-
-                            <StackPanel Grid.Column="2" Margin="8,0,0,0">
-                                <TextBlock Text="Operación" FontWeight="SemiBold" Foreground="#323130" Margin="0,0,0,6" />
-                                <ComboBox ItemsSource="{Binding OperationOptions}"
-                                          SelectedItem="{Binding SelectedOperation}"
-                                          Height="34" />
-                            </StackPanel>
-                        </Grid>
-
-                        <StackPanel Grid.Row="3" Margin="0,0,0,12">
-                            <TextBlock Text="Ruta Excel" FontWeight="SemiBold" Foreground="#323130" Margin="0,0,0,6" />
-                            <TextBox Text="{Binding OutputPath, UpdateSourceTrigger=PropertyChanged}" Height="34" Padding="8,6" />
-                        </StackPanel>
-
-                        <StackPanel Grid.Row="4" Orientation="Horizontal" VerticalAlignment="Top">
-                            <Button Content="Conectar"
-                                    Command="{Binding ConnectCommand}"
-                                    Background="#00A4EF"
-                                    Foreground="White"
-                                    BorderBrush="#0095D9"
-                                    FontWeight="SemiBold"
-                                    Padding="18,8"
-                                    Margin="0,0,10,0" />
-
-                            <Button Content="Extraer"
-                                    Command="{Binding ExtractCommand}"
-                                    Background="#7FBA00"
-                                    Foreground="White"
-                                    BorderBrush="#6D9F00"
-                                    FontWeight="SemiBold"
-                                    Padding="18,8" />
-
-                            <ProgressBar Width="140"
-                                         Height="8"
-                                         Margin="16,12,0,0"
-                                         IsIndeterminate="{Binding IsBusy}"
-                                         VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Grid>
-                </TabItem>
-
-                <TabItem Header="Logs">
-                    <Grid Margin="14">
-                        <TextBox Text="{Binding StatusMessage}" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" />
-                    </Grid>
-                </TabItem>
-            </TabControl>
         </Grid>
 
-        <Border Grid.Row="2" BorderBrush="#E1DFDD" BorderThickness="1,1,0,0" Padding="16,10" Background="#FAF9F8">
+        <Border Grid.Row="1"
+                BorderBrush="#E1DFDD"
+                BorderThickness="1,1,0,0"
+                Background="#FAF9F8"
+                Padding="14,10">
             <Grid>
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="260" />
                     <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="220" />
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="Estado:" FontWeight="SemiBold" Foreground="#323130" Margin="0,0,8,0" />
-                    <TextBlock Text="{Binding StatusMessage}" Foreground="#605E5C" />
-                </StackPanel>
+                <ProgressBar Grid.Column="0"
+                             Height="12"
+                             Minimum="0"
+                             Maximum="100"
+                             Value="{Binding ProgressValue}"
+                             Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisibilityConverter}}"
+                             VerticalAlignment="Center" />
 
-                <StackPanel Grid.Column="1" Orientation="Vertical" VerticalAlignment="Center">
-                    <ProgressBar Minimum="0" Maximum="100" Value="{Binding ProgressValue}" Height="12" />
-                    <TextBlock Text="{Binding ProgressValue, StringFormat=Progreso: {0:F0}%}" FontSize="11" Foreground="#605E5C" HorizontalAlignment="Right" Margin="0,4,0,0" />
-                </StackPanel>
+                <TextBlock Grid.Column="1"
+                           Text="{Binding StatusMessage}"
+                           VerticalAlignment="Center"
+                           Foreground="#605E5C"
+                           Margin="12,0,0,0"
+                           TextTrimming="CharacterEllipsis" />
             </Grid>
         </Border>
     </Grid>
