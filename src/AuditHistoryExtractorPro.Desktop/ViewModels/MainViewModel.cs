@@ -2,6 +2,7 @@ using AuditHistoryExtractorPro.Core.Models;
 using AuditHistoryExtractorPro.Core.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using System.Collections.ObjectModel;
 using System.IO;
 
 namespace AuditHistoryExtractorPro.Desktop.ViewModels;
@@ -35,7 +36,20 @@ public partial class MainViewModel : ObservableObject
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "AuditHistoryExtractorPro",
         "exports",
-        $"audit_{DateTime.UtcNow:yyyyMMdd_HHmmss}.csv");
+        $"audit_{DateTime.UtcNow:yyyyMMdd_HHmmss}.xlsx");
+
+    [ObservableProperty]
+    private DateRangeFilter selectedDateRange = DateRangeFilter.Todo;
+
+    [ObservableProperty]
+    private LookupItem? selectedUser;
+
+    [ObservableProperty]
+    private OperationFilter selectedOperation = OperationFilter.Update;
+
+    public IReadOnlyList<DateRangeFilter> DateRangeOptions { get; } = Enum.GetValues<DateRangeFilter>();
+    public IReadOnlyList<OperationFilter> OperationOptions { get; } = Enum.GetValues<OperationFilter>();
+    public ObservableCollection<LookupItem> AvailableUsers { get; } = new();
 
     public MainViewModel(IAuditService auditService)
     {
@@ -65,6 +79,18 @@ public partial class MainViewModel : ObservableObject
             StatusMessage = IsConnected
                 ? $"Conectado a: {_auditService.OrganizationName}"
                 : "No se pudo conectar.";
+
+            AvailableUsers.Clear();
+            var users = await _auditService.GetUsersAsync();
+            foreach (var user in users)
+            {
+                AvailableUsers.Add(user);
+            }
+
+            if (AvailableUsers.Count > 0 && SelectedUser is null)
+            {
+                SelectedUser = AvailableUsers[0];
+            }
         }
         catch (Exception ex)
         {
@@ -95,7 +121,10 @@ public partial class MainViewModel : ObservableObject
                 MaxRecords = 10000,
                 IncludeCreate = true,
                 IncludeUpdate = true,
-                IncludeDelete = true
+                IncludeDelete = true,
+                SelectedDateRange = SelectedDateRange,
+                SelectedUser = SelectedUser,
+                SelectedOperation = SelectedOperation
             };
 
             var progress = new Progress<string>(message =>

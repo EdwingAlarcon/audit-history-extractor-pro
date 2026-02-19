@@ -2,11 +2,12 @@ using AuditHistoryExtractorPro.Core.Models;
 using AuditHistoryExtractorPro.Domain.Interfaces;
 using AuditHistoryExtractorPro.Domain.ValueObjects;
 using DataverseServiceClient = Microsoft.PowerPlatform.Dataverse.Client.ServiceClient;
-using DomainExtractionCriteria = AuditHistoryExtractorPro.Domain.ValueObjects.ExtractionCriteria;
 using Microsoft.Crm.Sdk.Messages;
 using Microsoft.Xrm.Sdk;
+using Microsoft.Xrm.Sdk.Messages;
+using Microsoft.Xrm.Sdk.Metadata;
 using Microsoft.Xrm.Sdk.Query;
-using System.Text;
+using System.Xml.Linq;
 
 namespace AuditHistoryExtractorPro.Core.Services;
 
@@ -14,17 +15,25 @@ public class AuditService : IAuditService
 {
     private const int MaxDataversePageSize = 5000;
     private readonly AuthHelper _authHelper;
+    private readonly QueryBuilderService _queryBuilderService;
+    private readonly IExcelExportService _excelExportService;
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
     private DataverseServiceClient? _serviceClient;
     private IAuthenticationProvider? _authenticationProvider;
     private AuthenticationConfiguration? _authenticationConfiguration;
+    private Dictionary<string, Dictionary<int, string>> _optionSetCache = new(StringComparer.OrdinalIgnoreCase);
 
     public bool IsConnected { get; private set; }
     public string OrganizationName { get; private set; } = string.Empty;
 
-    public AuditService(AuthHelper authHelper)
+    public AuditService(
+        AuthHelper authHelper,
+        QueryBuilderService queryBuilderService,
+        IExcelExportService excelExportService)
     {
         _authHelper = authHelper;
+        _queryBuilderService = queryBuilderService;
+        _excelExportService = excelExportService;
     }
 
     public async Task ConnectAsync(ConnectionSettings settings, CancellationToken cancellationToken = default)
@@ -62,6 +71,8 @@ public class AuditService : IAuditService
             OrganizationName = string.IsNullOrWhiteSpace(_serviceClient.ConnectedOrgFriendlyName)
                 ? dataverseUri.Host
                 : _serviceClient.ConnectedOrgFriendlyName;
+
+            _optionSetCache.Clear();
         }
         catch
         {
@@ -73,6 +84,39 @@ public class AuditService : IAuditService
         {
             _connectionLock.Release();
         }
+    }
+
+    public async Task<IReadOnlyList<LookupItem>> GetUsersAsync(CancellationToken cancellationToken = default)
+    {
+        if (_serviceClient is null || !_serviceClient.IsReady)
+        {
+            return Array.Empty<LookupItem>();
+        }
+
+        var query = new QueryExpression("systemuser")
+        {
+            ColumnSet = new ColumnSet("systemuserid", "fullname"),
+            Criteria = new FilterExpression(LogicalOperator.And)
+            {
+                Conditions =
+                {
+                    new ConditionExpression("isdisabled", ConditionOperator.Equal, false)
+                }
+            },
+            TopCount = 200
+        };
+
+        query.Orders.Add(new OrderExpression("fullname", OrderType.Ascending));
+
+        var users = await Task.Run(() => _serviceClient.RetrieveMultiple(query), cancellationToken);
+        return users.Entities
+            .Select(e => new LookupItem
+            {
+                Id = e.GetAttributeValue<Guid>("systemuserid"),
+                Name = e.GetAttributeValue<string>("fullname") ?? "(sin nombre)"
+            })
+            .Where(u => u.Id != Guid.Empty)
+            .ToList();
     }
 
     public async Task<AuditHistoryExtractorPro.Core.Models.ExtractionResult> ExtractAuditHistoryAsync(
@@ -88,7 +132,6 @@ public class AuditService : IAuditService
                 return AuditHistoryExtractorPro.Core.Models.ExtractionResult.Fail("No hay conexión activa a Dataverse.");
             }
 
-            var criteria = request.ToCriteria();
             var filePath = ResolveOutputPath(outputFilePath, request.EntityName);
             var directory = Path.GetDirectoryName(filePath);
             if (string.IsNullOrWhiteSpace(directory))
@@ -97,67 +140,20 @@ public class AuditService : IAuditService
             }
 
             Directory.CreateDirectory(directory);
+            if (!filePath.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+            {
+                filePath = Path.ChangeExtension(filePath, ".xlsx");
+            }
+
+            _optionSetCache = await LoadOptionSetMetadataAsync(request.EntityName, cancellationToken);
 
             progress?.Report("Iniciando extracción de auditoría...");
 
             var totalWritten = 0;
-            var pageNumber = 1;
-            var moreRecords = true;
-            string? pagingCookie = null;
-            var entityName = criteria.EntityNames.First();
-
-            await using var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.Read, 65536, useAsync: true);
-            await using var writer = new StreamWriter(fileStream, new UTF8Encoding(false));
-
-            await writer.WriteLineAsync("AuditId,CreatedOn,EntityName,RecordId,ActionCode,ActionName,UserId,UserName,TransactionId,ChangeData");
-
-            while (moreRecords && !cancellationToken.IsCancellationRequested && totalWritten < request.MaxRecords)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var remaining = request.MaxRecords - totalWritten;
-                var pageSize = Math.Min(MaxDataversePageSize, remaining);
-                var query = BuildAuditQuery(criteria, entityName, pageNumber, pagingCookie, pageSize);
-
-                progress?.Report($"Consultando página {pageNumber}...");
-
-                var response = await Task.Run(() => _serviceClient.RetrieveMultiple(query), cancellationToken);
-                if (response.Entities.Count == 0)
-                {
-                    break;
-                }
-
-                var startIndex = totalWritten + 1;
-
-                foreach (var entity in response.Entities)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    await writer.WriteLineAsync(BuildCsvLine(entity));
-                    totalWritten++;
-
-                    if (totalWritten >= request.MaxRecords)
-                    {
-                        break;
-                    }
-                }
-
-                await writer.FlushAsync();
-
-                var endIndex = totalWritten;
-                progress?.Report($"Escribiendo registros {startIndex}-{endIndex}...");
-
-                moreRecords = response.MoreRecords && totalWritten < request.MaxRecords;
-                if (moreRecords)
-                {
-                    pageNumber++;
-                    pagingCookie = response.PagingCookie;
-                }
-
-                response.Entities.Clear();
-            }
+            var asyncRows = StreamRowsAsync(request, progress, count => totalWritten = count, cancellationToken);
+            await _excelExportService.ExportAsync(filePath, asyncRows, cancellationToken);
 
             progress?.Report($"Extracción completada. Total: {totalWritten} registros.");
-
             return AuditHistoryExtractorPro.Core.Models.ExtractionResult.Ok(totalWritten, filePath, $"Extracción completada. Archivo generado en: {filePath}");
         }, cancellationToken);
     }
@@ -174,60 +170,72 @@ public class AuditService : IAuditService
         return Path.Combine(Path.GetTempPath(), "AuditHistoryExtractorPro", "exports", fileName);
     }
 
-    private static QueryExpression BuildAuditQuery(
-        DomainExtractionCriteria criteria,
-        string entityName,
-        int pageNumber,
-        string? pagingCookie,
-        int pageSize)
+    private async IAsyncEnumerable<AuditExportRow> StreamRowsAsync(
+        ExtractionRequest request,
+        IProgress<string>? progress,
+        Action<int> updateCount,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var query = new QueryExpression("audit")
+        var totalWritten = 0;
+        var pageNumber = 1;
+        var moreRecords = true;
+        string? pagingCookie = null;
+
+        var filters = new AuditQueryFilters
         {
-            ColumnSet = new ColumnSet(
-                "auditid",
-                "createdon",
-                "action",
-                "objectid",
-                "objecttypecode",
-                "userid",
-                "transactionid",
-                "changedata"),
-            Criteria = new FilterExpression(LogicalOperator.And),
-            PageInfo = new PagingInfo
-            {
-                Count = pageSize,
-                PageNumber = pageNumber,
-                PagingCookie = pagingCookie
-            }
+            EntityName = request.EntityName,
+            SelectedDateRange = request.SelectedDateRange,
+            SelectedUser = request.SelectedUser,
+            SelectedOperation = request.SelectedOperation,
+            RecordId = request.RecordId,
+            StartDate = request.StartDate,
+            EndDate = request.EndDate
         };
 
-        query.Criteria.AddCondition("objecttypecode", ConditionOperator.Equal, entityName);
-
-        if (criteria.FromDate.HasValue)
+        while (moreRecords && !cancellationToken.IsCancellationRequested && totalWritten < request.MaxRecords)
         {
-            query.Criteria.AddCondition("createdon", ConditionOperator.GreaterEqual, criteria.FromDate.Value);
-        }
+            cancellationToken.ThrowIfCancellationRequested();
 
-        if (criteria.ToDate.HasValue)
-        {
-            query.Criteria.AddCondition("createdon", ConditionOperator.LessEqual, criteria.ToDate.Value);
-        }
+            var remaining = request.MaxRecords - totalWritten;
+            var pageSize = Math.Min(MaxDataversePageSize, remaining);
+            var query = _queryBuilderService.BuildQueryExpression(filters, pageNumber, pagingCookie, pageSize);
 
-        if (criteria.Operations?.Any() == true)
-        {
-            query.Criteria.AddCondition("action", ConditionOperator.In, criteria.Operations.Select(o => (int)o).ToArray());
-        }
+            progress?.Report($"Consultando página {pageNumber}...");
 
-        if (criteria.CustomFilters?.TryGetValue("recordId", out var recordIdRaw) == true && Guid.TryParse(recordIdRaw, out var recordId))
-        {
-            query.Criteria.AddCondition("objectid", ConditionOperator.Equal, recordId);
-        }
+            var response = await Task.Run(() => _serviceClient!.RetrieveMultiple(query), cancellationToken);
+            if (response.Entities.Count == 0)
+            {
+                yield break;
+            }
 
-        query.Orders.Add(new OrderExpression("createdon", OrderType.Ascending));
-        return query;
+            var startIndex = totalWritten + 1;
+            foreach (var entity in response.Entities)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                totalWritten++;
+                updateCount(totalWritten);
+                yield return BuildExportRow(entity);
+
+                if (totalWritten >= request.MaxRecords)
+                {
+                    break;
+                }
+            }
+
+            progress?.Report($"Escribiendo registros {startIndex}-{totalWritten}...");
+
+            moreRecords = response.MoreRecords && totalWritten < request.MaxRecords;
+            if (moreRecords)
+            {
+                pageNumber++;
+                pagingCookie = response.PagingCookie;
+            }
+
+            response.Entities.Clear();
+        }
     }
 
-    private static string BuildCsvLine(Entity entity)
+    private AuditExportRow BuildExportRow(Entity entity)
     {
         var auditId = entity.GetAttributeValue<Guid>("auditid");
         var createdOn = entity.GetAttributeValue<DateTime>("createdon");
@@ -238,30 +246,108 @@ public class AuditService : IAuditService
         var transactionId = entity.GetAttributeValue<Guid?>("transactionid");
         var changeData = entity.GetAttributeValue<string>("changedata") ?? string.Empty;
 
-        return string.Join(",", new[]
+        var (fieldName, oldValue, newValue) = ParseChangeData(changeData);
+
+        return new AuditExportRow
         {
-            EscapeCsv(auditId.ToString()),
-            EscapeCsv(createdOn == default ? string.Empty : createdOn.ToUniversalTime().ToString("O")),
-            EscapeCsv(objectType),
-            EscapeCsv(objectId?.ToString() ?? string.Empty),
-            EscapeCsv(actionCode.ToString()),
-            EscapeCsv(GetOperationName(actionCode)),
-            EscapeCsv(userRef?.Id.ToString() ?? string.Empty),
-            EscapeCsv(userRef?.Name ?? string.Empty),
-            EscapeCsv(transactionId?.ToString() ?? string.Empty),
-            EscapeCsv(changeData)
-        });
+            AuditId = auditId.ToString(),
+            CreatedOn = createdOn == default ? string.Empty : createdOn.ToUniversalTime().ToString("O"),
+            EntityName = objectType,
+            RecordId = objectId?.ToString() ?? string.Empty,
+            ActionCode = actionCode,
+            ActionName = GetOperationName(actionCode),
+            UserId = userRef?.Id.ToString() ?? string.Empty,
+            UserName = userRef?.Name ?? string.Empty,
+            TransactionId = transactionId?.ToString() ?? string.Empty,
+            ChangedField = fieldName,
+            OldValue = oldValue,
+            NewValue = newValue
+        };
     }
 
-    private static string EscapeCsv(string value)
+    private (string field, string oldValue, string newValue) ParseChangeData(string changeData)
     {
-        if (string.IsNullOrEmpty(value))
+        if (string.IsNullOrWhiteSpace(changeData))
         {
-            return string.Empty;
+            return (string.Empty, string.Empty, string.Empty);
         }
 
-        var escaped = value.Replace("\"", "\"\"");
-        return $"\"{escaped}\"";
+        try
+        {
+            var document = XDocument.Parse(changeData);
+            var firstAttribute = document.Descendants("attribute").FirstOrDefault();
+            if (firstAttribute is null)
+            {
+                return (string.Empty, string.Empty, string.Empty);
+            }
+
+            var fieldName = firstAttribute.Attribute("name")?.Value ?? string.Empty;
+            var oldValue = firstAttribute.Element("oldValue")?.Value ?? string.Empty;
+            var newValue = firstAttribute.Element("newValue")?.Value ?? string.Empty;
+
+            if (_optionSetCache.TryGetValue(fieldName, out var labels))
+            {
+                if (int.TryParse(oldValue, out var oldCode) && labels.TryGetValue(oldCode, out var oldLabel))
+                {
+                    oldValue = oldLabel;
+                }
+
+                if (int.TryParse(newValue, out var newCode) && labels.TryGetValue(newCode, out var newLabel))
+                {
+                    newValue = newLabel;
+                }
+            }
+
+            return (fieldName, oldValue, newValue);
+        }
+        catch
+        {
+            return (string.Empty, string.Empty, string.Empty);
+        }
+    }
+
+    private async Task<Dictionary<string, Dictionary<int, string>>> LoadOptionSetMetadataAsync(
+        string entityName,
+        CancellationToken cancellationToken)
+    {
+        if (_serviceClient is null)
+        {
+            return new Dictionary<string, Dictionary<int, string>>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var request = new RetrieveEntityRequest
+        {
+            LogicalName = entityName,
+            EntityFilters = EntityFilters.Attributes,
+            RetrieveAsIfPublished = true
+        };
+
+        var response = (RetrieveEntityResponse)await _serviceClient.ExecuteAsync(request, cancellationToken);
+        var cache = new Dictionary<string, Dictionary<int, string>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var attribute in response.EntityMetadata.Attributes)
+        {
+            if (attribute is not EnumAttributeMetadata enumAttribute)
+            {
+                continue;
+            }
+
+            var labels = enumAttribute.OptionSet?.Options?
+                .Where(o => o.Value.HasValue)
+                .ToDictionary(
+                    o => o.Value!.Value,
+                    o => o.Label?.UserLocalizedLabel?.Label
+                        ?? o.Label?.LocalizedLabels?.FirstOrDefault()?.Label
+                        ?? o.Value!.Value.ToString())
+                ?? new Dictionary<int, string>();
+
+            if (labels.Count > 0 && !string.IsNullOrWhiteSpace(enumAttribute.LogicalName))
+            {
+                cache[enumAttribute.LogicalName] = labels;
+            }
+        }
+
+        return cache;
     }
 
     private static string GetOperationName(int operationCode)

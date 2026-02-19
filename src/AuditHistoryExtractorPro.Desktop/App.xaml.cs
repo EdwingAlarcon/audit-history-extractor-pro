@@ -34,6 +34,8 @@ public partial class App : System.Windows.Application
 	private static void ConfigureServices(IServiceCollection services)
 	{
 		services.AddSingleton<AuthHelper>();
+		services.AddSingleton<QueryBuilderService>();
+		services.AddSingleton<IExcelExportService, ExcelExportService>();
 		services.AddSingleton<IAuditService, AuditService>();
 		services.AddSingleton<MainViewModel>();
 		services.AddSingleton<MainWindow>();

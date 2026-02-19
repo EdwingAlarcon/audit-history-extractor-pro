@@ -9,6 +9,8 @@ public interface IAuditService
 
     Task ConnectAsync(ConnectionSettings settings, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<LookupItem>> GetUsersAsync(CancellationToken cancellationToken = default);
+
     Task<ExtractionResult> ExtractAuditHistoryAsync(
         ExtractionRequest request,
         string outputFilePath,

@@ -8,6 +8,9 @@ using AuditHistoryExtractorPro.UI.Services;
 using CoreAuditServiceInterface = AuditHistoryExtractorPro.Core.Services.IAuditService;
 using CoreAuditService = AuditHistoryExtractorPro.Core.Services.AuditService;
 using CoreAuthHelper = AuditHistoryExtractorPro.Core.Services.AuthHelper;
+using CoreQueryBuilderService = AuditHistoryExtractorPro.Core.Services.QueryBuilderService;
+using CoreExcelExportServiceInterface = AuditHistoryExtractorPro.Core.Services.IExcelExportService;
+using CoreExcelExportService = AuditHistoryExtractorPro.Core.Services.ExcelExportService;
 using MudBlazor.Services;
 using Serilog;
 
@@ -36,6 +39,8 @@ builder.Services.AddSingleton<ExtractViewService>();
 builder.Services.AddSingleton<ExportViewService>();
 builder.Services.AddSingleton<IUserConfigService, UserConfigService>();
 builder.Services.AddSingleton<CoreAuthHelper>();
+builder.Services.AddSingleton<CoreQueryBuilderService>();
+builder.Services.AddSingleton<CoreExcelExportServiceInterface, CoreExcelExportService>();
 builder.Services.AddSingleton<CoreAuditServiceInterface, CoreAuditService>();
 builder.Services.AddScoped<ExtractPageCoordinator>();
 builder.Services.AddScoped<IAuditService, AuditService>();

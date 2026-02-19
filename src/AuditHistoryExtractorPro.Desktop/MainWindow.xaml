@@ -68,6 +68,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
 
@@ -81,12 +82,42 @@
                             <TextBox Text="{Binding EntityName, UpdateSourceTrigger=PropertyChanged}" MinWidth="300" Height="34" Padding="8,6" />
                         </StackPanel>
 
-                        <StackPanel Grid.Row="2" Margin="0,0,0,12">
-                            <TextBlock Text="Ruta CSV" FontWeight="SemiBold" Foreground="#323130" Margin="0,0,0,6" />
+                        <Grid Grid.Row="2" Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                                <TextBlock Text="Rango de Fecha" FontWeight="SemiBold" Foreground="#323130" Margin="0,0,0,6" />
+                                <ComboBox ItemsSource="{Binding DateRangeOptions}"
+                                          SelectedItem="{Binding SelectedDateRange}"
+                                          Height="34" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="1" Margin="8,0">
+                                <TextBlock Text="Usuario" FontWeight="SemiBold" Foreground="#323130" Margin="0,0,0,6" />
+                                <ComboBox ItemsSource="{Binding AvailableUsers}"
+                                          SelectedItem="{Binding SelectedUser}"
+                                          DisplayMemberPath="Name"
+                                          Height="34" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="2" Margin="8,0,0,0">
+                                <TextBlock Text="Operación" FontWeight="SemiBold" Foreground="#323130" Margin="0,0,0,6" />
+                                <ComboBox ItemsSource="{Binding OperationOptions}"
+                                          SelectedItem="{Binding SelectedOperation}"
+                                          Height="34" />
+                            </StackPanel>
+                        </Grid>
+
+                        <StackPanel Grid.Row="3" Margin="0,0,0,12">
+                            <TextBlock Text="Ruta Excel" FontWeight="SemiBold" Foreground="#323130" Margin="0,0,0,6" />
                             <TextBox Text="{Binding OutputPath, UpdateSourceTrigger=PropertyChanged}" Height="34" Padding="8,6" />
                         </StackPanel>
 
-                        <StackPanel Grid.Row="3" Orientation="Horizontal" VerticalAlignment="Top">
+                        <StackPanel Grid.Row="4" Orientation="Horizontal" VerticalAlignment="Top">
                             <Button Content="Conectar"
                                     Command="{Binding ConnectCommand}"
                                     Background="#00A4EF"
