@@ -47,6 +47,9 @@ builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<ExportPageCoordinator>();
 builder.Services.AddScoped<HistoryPageCoordinator>();
 
+// Registro del servicio de traducción de metadatos
+builder.Services.AddSingleton<AuditHistoryExtractorPro.Core.Services.IMetadataTranslationService, AuditHistoryExtractorPro.Core.Services.MetadataTranslationService>();
+
 // Configuración de Dataverse desde appsettings.json
 var dataverseConfig = builder.Configuration.GetSection("Dataverse");
 var configuredEnvironmentUrl = dataverseConfig["EnvironmentUrl"];
