@@ -53,7 +53,7 @@ public sealed class MetadataService : IMetadataService
                 Properties = new MetadataPropertiesExpression
                 {
                     AllProperties = false,
-                    PropertyNames = { "LogicalName", "DisplayName", "ObjectTypeCode", "MetadataId" }
+                    PropertyNames = { "LogicalName", "DisplayName", "ObjectTypeCode", "MetadataId", "IsAuditEnabled" }
                 }
             };
 
