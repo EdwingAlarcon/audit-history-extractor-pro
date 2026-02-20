@@ -1,6 +1,7 @@
 using AuditHistoryExtractorPro.Core.Models;
 using DataverseServiceClient = Microsoft.PowerPlatform.Dataverse.Client.ServiceClient;
 using Microsoft.Xrm.Sdk.Metadata;
+using Microsoft.Xrm.Sdk.Metadata.Query;
 using Microsoft.Xrm.Sdk.Messages;
 using Microsoft.Xrm.Sdk.Query;
 
@@ -39,13 +40,30 @@ public sealed class MetadataService : IMetadataService
 
             var client = GetReadyClient();
 
-            var request = new RetrieveAllEntitiesRequest
+            // Nueva implementación: RetrieveMetadataChangesRequest con EntityQueryExpression
+            var entityQuery = new EntityQueryExpression
             {
-                EntityFilters = EntityFilters.Entity,
-                RetrieveAsIfPublished = true
+                Criteria = new MetadataFilterExpression
+                {
+                    Conditions =
+                    {
+                        new MetadataConditionExpression("IsAuditEnabled", MetadataConditionOperator.Equals, true)
+                    }
+                },
+                Properties = new MetadataPropertiesExpression
+                {
+                    AllProperties = false,
+                    PropertyNames = { "LogicalName", "DisplayName", "ObjectTypeCode", "MetadataId" }
+                }
             };
 
-            var response = await client.ExecuteAsync(request, cancellationToken) as RetrieveAllEntitiesResponse;
+            var request = new RetrieveMetadataChangesRequest
+            {
+                Query = entityQuery,
+                ClientVersionStamp = null
+            };
+
+            var response = await client.ExecuteAsync(request, cancellationToken) as RetrieveMetadataChangesResponse;
             if (response?.EntityMetadata is null)
             {
                 return Array.Empty<EntityDTO>();
@@ -53,7 +71,6 @@ public sealed class MetadataService : IMetadataService
 
             _auditableEntitiesCache = response.EntityMetadata
                 .Where(e =>
-                    e.IsAuditEnabled?.Value == true &&
                     e.MetadataId != null &&
                     e.MetadataId != Guid.Empty &&
                     !string.IsNullOrWhiteSpace(e.LogicalName) &&

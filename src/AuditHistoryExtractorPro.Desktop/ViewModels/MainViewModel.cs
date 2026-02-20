@@ -315,20 +315,28 @@ public partial class MainViewModel : ObservableObject
         AvailableViews.Clear();
         AttributesList.Clear();
 
-        var entities = await _metadataService.GetAuditableEntitiesAsync();
-        foreach (var entity in entities)
+        try
         {
-            AvailableEntities.Add(entity);
-        }
+            var entities = await _metadataService.GetAuditableEntitiesAsync();
+            foreach (var entity in entities)
+            {
+                AvailableEntities.Add(entity);
+            }
 
-        if (AvailableEntities.Count == 0)
+            if (AvailableEntities.Count == 0)
+            {
+                StatusMessage = "No se encontraron entidades auditables.";
+                return;
+            }
+
+            SelectedEntity = AvailableEntities.FirstOrDefault(e =>
+                string.Equals(e.LogicalName, EntityName, StringComparison.OrdinalIgnoreCase))
+                ?? AvailableEntities[0];
+        }
+        catch (Exception ex)
         {
-            return;
+            StatusMessage = $"Error al cargar entidades auditables: {ex.Message}";
         }
-
-        SelectedEntity = AvailableEntities.FirstOrDefault(e =>
-            string.Equals(e.LogicalName, EntityName, StringComparison.OrdinalIgnoreCase))
-            ?? AvailableEntities[0];
     }
 
     private async Task LoadSystemViewsAsync(string entityLogicalName)
