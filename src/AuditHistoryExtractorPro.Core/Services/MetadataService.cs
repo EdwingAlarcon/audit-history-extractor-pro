@@ -52,14 +52,23 @@ public sealed class MetadataService : IMetadataService
             }
 
             _auditableEntitiesCache = response.EntityMetadata
-                .Where(e => e.IsAuditEnabled?.Value == true)
+                .Where(e =>
+                    e.IsAuditEnabled?.Value == true &&
+                    e.MetadataId != null &&
+                    e.MetadataId != Guid.Empty &&
+                    !string.IsNullOrWhiteSpace(e.LogicalName) &&
+                    !string.IsNullOrWhiteSpace(ResolveDisplayName(e)) &&
+                    !((e.LogicalName?.IndexOf("(En desuso)", StringComparison.OrdinalIgnoreCase) ?? -1) >= 0)
+                    && !((e.LogicalName?.IndexOf("(Deprecated)", StringComparison.OrdinalIgnoreCase) ?? -1) >= 0)
+                    && !((ResolveDisplayName(e)?.IndexOf("(En desuso)", StringComparison.OrdinalIgnoreCase) ?? -1) >= 0)
+                    && !((ResolveDisplayName(e)?.IndexOf("(Deprecated)", StringComparison.OrdinalIgnoreCase) ?? -1) >= 0)
+                )
                 .Select(e => new EntityDTO
                 {
                     LogicalName = e.LogicalName ?? string.Empty,
                     DisplayName = ResolveDisplayName(e),
                     ObjectTypeCode = e.ObjectTypeCode
                 })
-                .Where(e => !string.IsNullOrWhiteSpace(e.LogicalName))
                 .OrderBy(e => e.DisplayName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 

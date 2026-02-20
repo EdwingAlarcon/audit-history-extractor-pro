@@ -255,33 +255,101 @@ public class AuditService : IAuditService
             }
 
             var startIndex = totalWritten + 1;
+
             foreach (var entity in response.Entities)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var changeData = entity.GetAttributeValue<string>("changedata") ?? string.Empty;
-                var attributeMask = entity.GetAttributeValue<string>("attributemask") ?? string.Empty;
-                var change = ParseChangeData(changeData);
-
-                if (!ShouldIncludeRecord(attributeMask, change.field, selectedAttributes))
+                AuditExportRow? row = null;
+                try
                 {
-                    continue;
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    // Guard Clauses para referencias huérfanas o GUIDs vacíos
+                    var objectRef = entity.GetAttributeValue<EntityReference>("objectid");
+                    if (objectRef != null && (objectRef.Id == Guid.Empty || string.IsNullOrWhiteSpace(objectRef.LogicalName)))
+                    {
+                        // Registro corrupto, saltar
+                        continue;
+                    }
+                    var userRef = entity.GetAttributeValue<EntityReference>("userid");
+                    if (userRef != null && userRef.Id == Guid.Empty)
+                    {
+                        continue;
+                    }
+                    var callingUserRef = entity.GetAttributeValue<EntityReference>("callinguserid");
+                    if (callingUserRef != null && callingUserRef.Id == Guid.Empty)
+                    {
+                        continue;
+                    }
+
+                    var changeData = entity.GetAttributeValue<string>("changedata") ?? string.Empty;
+                    var attributeMask = entity.GetAttributeValue<string>("attributemask") ?? string.Empty;
+                    var change = ParseChangeData(changeData);
+
+                    if (!ShouldIncludeRecord(attributeMask, change.field, selectedAttributes))
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        row = await BuildExportRowAsync(entity, change, cancellationToken);
+                    }
+                    catch
+                    {
+                        // Si falla la construcción de la fila, devolver registro corrupto
+                        row = new AuditExportRow
+                        {
+                            AuditId = entity.GetAttributeValue<Guid>("auditid").ToString(),
+                            CreatedOn = entity.GetAttributeValue<DateTime>("createdon").ToString("O"),
+                            EntityName = objectRef?.LogicalName ?? "Desconocido",
+                            RecordId = objectRef?.Id.ToString() ?? string.Empty,
+                            LogicalName = objectRef?.LogicalName ?? "Desconocido",
+                            RecordUrl = string.Empty,
+                            ActionCode = 0,
+                            ActionName = "Registro Corrupto",
+                            UserId = userRef?.Id.ToString() ?? string.Empty,
+                            UserName = "Registro Corrupto",
+                            RealActor = "Registro Corrupto",
+                            TransactionId = string.Empty,
+                            ChangedField = change.field,
+                            OldValue = "Registro Corrupto",
+                            NewValue = "Registro Corrupto"
+                        };
+                    }
+                }
+                catch
+                {
+                    // Si ocurre cualquier error, devolver registro corrupto genérico
+                    row = new AuditExportRow
+                    {
+                        AuditId = string.Empty,
+                        CreatedOn = string.Empty,
+                        EntityName = "Registro Corrupto",
+                        RecordId = string.Empty,
+                        LogicalName = "Registro Corrupto",
+                        RecordUrl = string.Empty,
+                        ActionCode = 0,
+                        ActionName = "Registro Corrupto",
+                        UserId = string.Empty,
+                        UserName = "Registro Corrupto",
+                        RealActor = "Registro Corrupto",
+                        TransactionId = string.Empty,
+                        ChangedField = string.Empty,
+                        OldValue = "Registro Corrupto",
+                        NewValue = "Registro Corrupto"
+                    };
                 }
 
-                var row = await BuildExportRowAsync(entity, change, cancellationToken);
-
-                if (!MatchesSearchValue(row, searchValue))
+                if (row != null && MatchesSearchValue(row, searchValue))
                 {
-                    continue;
-                }
+                    totalWritten++;
+                    updateCount(totalWritten);
+                    yield return row;
 
-                totalWritten++;
-                updateCount(totalWritten);
-                yield return row;
-
-                if (totalWritten >= request.MaxRecords)
-                {
-                    break;
+                    if (totalWritten >= request.MaxRecords)
+                    {
+                        break;
+                    }
                 }
             }
 
@@ -523,9 +591,9 @@ public class AuditService : IAuditService
         }
 
         var guid = ExtractGuid(value);
-        if (!guid.HasValue)
+        if (!guid.HasValue || guid.Value == Guid.Empty)
         {
-            return value;
+            return "[Registro Eliminado o Desconocido]";
         }
 
         var targetEntity = ResolveTargetEntity(fieldName);
@@ -534,8 +602,19 @@ public class AuditService : IAuditService
             return value;
         }
 
-        var resolvedName = await ResolveEntityPrimaryNameAsync(targetEntity, guid.Value, cancellationToken);
-        return string.IsNullOrWhiteSpace(resolvedName) ? value : resolvedName;
+        try
+        {
+            var resolvedName = await ResolveEntityPrimaryNameAsync(targetEntity, guid.Value, cancellationToken);
+            return string.IsNullOrWhiteSpace(resolvedName) ? "[Registro Eliminado o Desconocido]" : resolvedName;
+        }
+        catch (FaultException)
+        {
+            return "[Registro Eliminado o Desconocido]";
+        }
+        catch
+        {
+            return value;
+        }
     }
 
     private string? ResolveTargetEntity(string fieldName)
