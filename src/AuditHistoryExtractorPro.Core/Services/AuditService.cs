@@ -7,8 +7,11 @@ using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Messages;
 using Microsoft.Xrm.Sdk.Metadata;
 using Microsoft.Xrm.Sdk.Query;
+using Polly;
+using Polly.Retry;
 using System.Globalization;
 using System.Net;
+using System.ServiceModel;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
@@ -21,6 +24,9 @@ public class AuditService : IAuditService
     private readonly QueryBuilderService _queryBuilderService;
     private readonly IExcelExportService _excelExportService;
     private readonly IMetadataTranslationService _metadataTranslationService;
+    private const int MaxThrottlingRetries = 3;
+    private const int ExtraRetryDelaySeconds = 1;
+    private const int DefaultRetryAfterSeconds = 5;
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
     private readonly SemaphoreSlim _nameResolutionLock = new(1, 1);
     private DataverseServiceClient? _serviceClient;
@@ -31,6 +37,7 @@ public class AuditService : IAuditService
     private Dictionary<string, string> _lookupTargetByAttribute = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, string> _primaryNameAttributeCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _nameResolutionCache = new(StringComparer.OrdinalIgnoreCase);
+    private IProgress<string>? _currentProgress;
 
     public bool IsConnected { get; private set; }
     public string OrganizationName { get; private set; } = string.Empty;
@@ -238,7 +245,10 @@ public class AuditService : IAuditService
 
             progress?.Report($"Consultando página {pageNumber}...");
 
-            var response = await Task.Run(() => _serviceClient!.RetrieveMultiple(query), cancellationToken);
+            _currentProgress = progress;
+            var response = await ExecuteWithRetryAsync(
+                () => Task.Run(() => _serviceClient!.RetrieveMultiple(query), cancellationToken),
+                cancellationToken);
             if (response.Entities.Count == 0)
             {
                 yield break;
@@ -662,5 +672,103 @@ public class AuditService : IAuditService
             28 => "Restore",
             _ => "Unknown"
         };
+    }
+
+    // ======================== Smart Retry Policy ========================
+
+    /// <summary>
+    /// Executes a Dataverse operation with a smart retry policy that handles
+    /// Throttling (429) errors, extracting Retry-After and notifying the UI.
+    /// </summary>
+    private async Task<T> ExecuteWithRetryAsync<T>(
+        Func<Task<T>> operation,
+        CancellationToken cancellationToken)
+    {
+        var retryPolicy = BuildThrottlingRetryPolicy<T>();
+        return await retryPolicy.ExecuteAsync(async (ct) => await operation(), cancellationToken);
+    }
+
+    private AsyncRetryPolicy<T> BuildThrottlingRetryPolicy<T>()
+    {
+        return Policy<T>
+            .Handle<FaultException>(IsThrottlingException)
+            .Or<FaultException>(IsThrottlingException)
+            .WaitAndRetryAsync(
+                retryCount: MaxThrottlingRetries,
+                sleepDurationProvider: (retryAttempt, outcome, _) =>
+                {
+                    var retryAfter = ExtractRetryAfterSeconds(outcome.Exception);
+                    var waitSeconds = retryAfter + ExtraRetryDelaySeconds;
+                    return TimeSpan.FromSeconds(waitSeconds);
+                },
+                onRetryAsync: (outcome, waitDuration, retryAttempt, _) =>
+                {
+                    var totalSeconds = (int)Math.Ceiling(waitDuration.TotalSeconds);
+                    _currentProgress?.Report(
+                        $"Detectado límite de velocidad API. Esperando {totalSeconds} segundos... (Reintento {retryAttempt}/{MaxThrottlingRetries})");
+                    return Task.CompletedTask;
+                });
+    }
+
+    /// <summary>
+    /// Determines whether an exception is a Dataverse throttling (429) error.
+    /// Checks the ErrorCode (-2147015902 = 0x80072326) which Dataverse uses for
+    /// "Number of requests exceeded the limit", and also checks for common
+    /// throttling message patterns.
+    /// </summary>
+    private static bool IsThrottlingException(FaultException ex)
+    {
+        var message = ex.Message ?? string.Empty;
+        var innerMessage = ex.InnerException?.Message ?? string.Empty;
+
+        return message.Contains("429")
+            || message.Contains("Too Many Requests", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("Number of requests exceeded the limit", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("Rate limit", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("-2147015902")
+            || innerMessage.Contains("429")
+            || innerMessage.Contains("Too Many Requests", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Extracts the Retry-After value (in seconds) from the exception message.
+    /// Dataverse throttling responses typically include a "Retry after {N} seconds"
+    /// or "Retry-After: {N}" pattern in the error message.
+    /// Returns a sensible default if the value cannot be parsed.
+    /// </summary>
+    private static int ExtractRetryAfterSeconds(Exception? exception)
+    {
+        if (exception is null)
+        {
+            return DefaultRetryAfterSeconds;
+        }
+
+        var message = exception.Message ?? string.Empty;
+
+        // Pattern: "Retry after {X} seconds"
+        var match = Regex.Match(message, @"[Rr]etry\s+after\s+(\d+)\s+seconds?", RegexOptions.IgnoreCase);
+        if (match.Success && int.TryParse(match.Groups[1].Value, out var seconds))
+        {
+            return seconds;
+        }
+
+        // Pattern: "Retry-After: {N}"
+        match = Regex.Match(message, @"[Rr]etry-[Aa]fter:\s*(\d+)");
+        if (match.Success && int.TryParse(match.Groups[1].Value, out seconds))
+        {
+            return seconds;
+        }
+
+        // Check inner exception too
+        if (exception.InnerException is not null)
+        {
+            var innerResult = ExtractRetryAfterSeconds(exception.InnerException);
+            if (innerResult != DefaultRetryAfterSeconds)
+            {
+                return innerResult;
+            }
+        }
+
+        return DefaultRetryAfterSeconds;
     }
 }
