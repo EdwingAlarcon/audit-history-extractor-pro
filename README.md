@@ -212,7 +212,7 @@ Luego edita `src/AuditHistoryExtractorPro.UI/appsettings.Development.json` y com
 
 Solo ve a **Configuración** → pestaña **"Múltiples Cuentas"** → Guarda cada una con un nombre único.
 
-> 📚 **Guía Completa**: [GUIA-RAPIDA-UI.md](./GUIA-RAPIDA-UI.md)
+> 📚 **Guía Completa**: [GUIA-RAPIDA-UI.md](docs/guides/GUIA-RAPIDA-UI.md)
 
 ## 🔧 Configuración Avanzada
 

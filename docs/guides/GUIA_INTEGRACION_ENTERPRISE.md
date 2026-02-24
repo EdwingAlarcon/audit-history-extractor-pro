@@ -388,7 +388,7 @@ var criteria2 = new ExtractionCriteria
 
 ## 📚 Documentación Adicional
 
-- [Documento Principal: ARQUITECTURA_OPTIMIZACION_EMPRESARIAL.md](./ARQUITECTURA_OPTIMIZACION_EMPRESARIAL.md)
+- [Documento Principal: ARQUITECTURA_OPTIMIZACION_EMPRESARIAL.md](../architecture/ARQUITECTURA_OPTIMIZACION_EMPRESARIAL.md)
 - [Dataverse SDK Audit Reference](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/auditing-entities-messages)
 - [Service Protection API Limits](https://learn.microsoft.com/en-us/power-platform/admin/api-request-limits-allocations)
 - [Power BI Data Connectivity](https://learn.microsoft.com/en-us/power-query/power-query-what-is-power-query)

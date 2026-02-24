@@ -255,8 +255,8 @@ var filePath = await exportService.ExportAsync(records, exportConfig);
 ## 📞 Contacto & Soporte
 
 **Documentación:**
-- [ARQUITECTURA_OPTIMIZACION_EMPRESARIAL.md](./ARQUITECTURA_OPTIMIZACION_EMPRESARIAL.md) - Análisis técnico detallado
-- [GUIA_INTEGRACION_ENTERPRISE.md](./GUIA_INTEGRACION_ENTERPRISE.md) - Pasos de integración
+- [ARQUITECTURA_OPTIMIZACION_EMPRESARIAL.md](architecture/ARQUITECTURA_OPTIMIZACION_EMPRESARIAL.md) - Análisis técnico detallado
+- [GUIA_INTEGRACION_ENTERPRISE.md](guides/GUIA_INTEGRACION_ENTERPRISE.md) - Pasos de integración
 - [README.md](./README.md) - Documentación general
 
 **Código:**
