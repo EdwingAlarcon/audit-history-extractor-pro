@@ -62,7 +62,29 @@ public class AuditService : IAuditService
             return;
         }
 
-        await LoadEntityMetadataContextAsync(entityLogicalName.Trim(), cancellationToken);
+        // Tolerancia a Fallos Individuales (Graceful Degradation):
+        // Si la entidad tiene metadatos corruptos en el servidor (ej. soluciones
+        // desinstaladas que dejan "fantasmas" con Guid.Empty), el SDK lanza una
+        // FaultException que NO debe abortar el flujo de conexión completo.
+        // Registramos el aviso y continuamos: la extracción seguirá funcionando
+        // para el resto de entidades; solo esta perderá el pre-calentamiento.
+        try
+        {
+            await LoadEntityMetadataContextAsync(entityLogicalName.Trim(), cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancelación explícita del usuario: se propaga sin silenciar.
+            throw;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[WarmupEntityMetadataAsync] ADVERTENCIA: No se pudo pre-cargar " +
+                $"'{entityLogicalName}': {ex.GetType().Name} – {ex.Message}");
+            // continue: el warmup de esta entidad falla de forma silenciosa,
+            // el resto del flujo de conexión continúa con normalidad.
+        }
     }
 
     public async Task ConnectAsync(ConnectionSettings settings, CancellationToken cancellationToken = default)
