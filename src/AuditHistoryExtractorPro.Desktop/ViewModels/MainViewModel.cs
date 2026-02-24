@@ -311,6 +311,63 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // COMMAND: Vista Previa (máx. 50 registros, sin escribir archivo)
+    // ─────────────────────────────────────────────────────────────────────────
+    private const int PreviewLimit = 50;
+
+    private bool CanPreview() => !IsBusy && IsConnected;
+
+    [RelayCommand(CanExecute = nameof(CanPreview))]
+    private async Task PreviewAsync()
+    {
+        IsBusy = true;
+        ProgressValue = 10;
+        StatusMessage = $"Cargando vista previa (máx. {PreviewLimit} registros)...";
+        PreviewRecords.Clear();
+
+        try
+        {
+            var request = new ExtractionRequest
+            {
+                EntityName         = EntityName,
+                MaxRecords         = PreviewLimit,
+                SelectedDateRange  = SelectedDateRange,
+                SelectedDateFrom   = SelectedDateFrom,
+                SelectedDateTo     = SelectedDateTo,
+                IsFullDay          = IsFullDay,
+                SelectedUser       = SelectedUser,
+                SelectedOperations = GetSelectedOperations(),
+                SelectedActions    = GetSelectedActions(),
+                SelectedAttributes = GetSelectedAttributes(),
+                SearchValue        = SearchValue,
+                StartDate          = BuildStartDateTime(),
+                EndDate            = BuildEndDateTime()
+            };
+
+            var rows = await _auditService.GetPreviewRowsAsync(request, PreviewLimit);
+
+            foreach (var row in rows)
+            {
+                PreviewRecords.Add(row);
+            }
+
+            ProgressValue = 100;
+            StatusMessage = PreviewRecords.Count == 0
+                ? "Vista previa: no se encontraron registros con los filtros actuales."
+                : $"Vista previa: {PreviewRecords.Count} de los primeros {PreviewLimit} registros. Revisa los datos y pulsa Exportar.";
+        }
+        catch (Exception ex)
+        {
+            ProgressValue = 0;
+            StatusMessage = $"Error en vista previa: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     partial void OnUserSearchTextChanged(string value)
     {
         _ = SearchUsersAsync(value);

@@ -174,6 +174,49 @@ public class AuditService : IAuditService
             .ToList();
     }
 
+    public async Task<IReadOnlyList<AuditExportRow>> GetPreviewRowsAsync(
+        ExtractionRequest request,
+        int maxRows = 50,
+        CancellationToken cancellationToken = default)
+    {
+        if (_serviceClient is null || !_serviceClient.IsReady)
+        {
+            throw new InvalidOperationException("No hay conexión activa a Dataverse.");
+        }
+
+        // Aseguramos que los metadatos de la entidad estén cargados
+        await LoadEntityMetadataContextAsync(request.EntityName, cancellationToken);
+
+        // Construimos una copia de la solicitud con MaxRecords acotado al límite de vista previa.
+        // Esto garantiza que StreamRowsAsync se detenga exactamente en maxRows filas,
+        // sin importar el MaxRecords original de la solicitud completa.
+        var previewRequest = new ExtractionRequest
+        {
+            EntityName        = request.EntityName,
+            RecordId          = request.RecordId,
+            SelectedDateRange = request.SelectedDateRange,
+            SelectedDateFrom  = request.SelectedDateFrom,
+            SelectedDateTo    = request.SelectedDateTo,
+            IsFullDay         = request.IsFullDay,
+            StartDate         = request.StartDate,
+            EndDate           = request.EndDate,
+            SelectedUser      = request.SelectedUser,
+            SelectedOperations = request.SelectedOperations,
+            SelectedActions   = request.SelectedActions,
+            SelectedAttributes = request.SelectedAttributes,
+            SearchValue       = request.SearchValue,
+            MaxRecords        = maxRows   // ← límite de seguridad anti-OOM
+        };
+
+        var rows = new List<AuditExportRow>(maxRows);
+        await foreach (var row in StreamRowsAsync(previewRequest, progress: null, updateCount: _ => { }, cancellationToken))
+        {
+            rows.Add(row);
+        }
+
+        return rows;
+    }
+
     public async Task<AuditHistoryExtractorPro.Core.Models.ExtractionResult> ExtractAuditHistoryAsync(
         ExtractionRequest request,
         string outputFilePath,

@@ -5,9 +5,10 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="d" Title="Audit History Extractor Pro - Desktop" Height="760" Width="1260" MinHeight="680" MinWidth="1100" WindowStartupLocation="CenterScreen" Background="White">
 
     <Window.Resources>
-        <SolidColorBrush x:Key="MsBlueBrush" Color="#00A4EF" />
-        <SolidColorBrush x:Key="MsGreenBrush" Color="#7FBA00" />
-        <SolidColorBrush x:Key="MsGrayBrush" Color="#F3F2F1" />
+        <SolidColorBrush x:Key="MsBlueBrush"   Color="#00A4EF" />
+        <SolidColorBrush x:Key="MsGreenBrush"  Color="#7FBA00" />
+        <SolidColorBrush x:Key="MsOrangeBrush" Color="#F7A823" />
+        <SolidColorBrush x:Key="MsGrayBrush"   Color="#F3F2F1" />
         <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter" />
 
         <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
@@ -166,12 +167,15 @@
                 <Border Grid.Row="0" BorderBrush="#E1DFDD" BorderThickness="1" CornerRadius="6" Padding="10" Background="White">
                     <DataGrid IsReadOnly="True" AutoGenerateColumns="False" ItemsSource="{Binding PreviewRecords}" SelectedItem="{Binding SelectedPreviewRecord, Mode=TwoWay}" CanUserAddRows="False" CanUserDeleteRows="False" AlternatingRowBackground="#FAF9F8" RowBackground="White" GridLinesVisibility="Horizontal" BorderThickness="0" MouseDoubleClick="DataGrid_MouseDoubleClick">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="GUID" Binding="{Binding RecordId}" Width="220" />
-                            <DataGridTextColumn Header="Entidad" Binding="{Binding EntityName}" Width="120" />
-                            <DataGridTextColumn Header="Acción" Binding="{Binding ActionName}" Width="90" />
-                            <DataGridTextColumn Header="Campo" Binding="{Binding ChangedField}" Width="140" />
-                            <DataGridTextColumn Header="Valor Anterior" Binding="{Binding OldValue}" Width="*" />
-                            <DataGridTextColumn Header="Valor Nuevo" Binding="{Binding NewValue}" Width="*" />
+                            <DataGridTextColumn Header="Fecha (UTC)"      Binding="{Binding CreatedOn}"    Width="155" />
+                            <DataGridTextColumn Header="Entidad"           Binding="{Binding EntityName}"   Width="110" />
+                            <DataGridTextColumn Header="Acción"            Binding="{Binding ActionName}"   Width="90"  />
+                            <DataGridTextColumn Header="Campo"             Binding="{Binding ChangedField}" Width="140" />
+                            <DataGridTextColumn Header="Valor Anterior"    Binding="{Binding OldValue}"     Width="*"   />
+                            <DataGridTextColumn Header="Valor Nuevo"       Binding="{Binding NewValue}"     Width="*"   />
+                            <DataGridTextColumn Header="Usuario"           Binding="{Binding UserName}"     Width="130" />
+                            <DataGridTextColumn Header="Actor Real"        Binding="{Binding RealActor}"    Width="160" />
+                            <DataGridTextColumn Header="GUID Registro"     Binding="{Binding RecordId}"     Width="220" />
                         </DataGrid.Columns>
                         <DataGrid.ContextMenu>
                             <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
@@ -184,6 +188,8 @@
 
                 <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
                     <Button x:Name="btnConnect" Content="Conectar" Command="{Binding ConnectCommand}" Background="{StaticResource MsBlueBrush}" Style="{StaticResource PrimaryButtonStyle}" />
+
+                    <Button x:Name="btnPreview" Content="Vista Previa" Command="{Binding PreviewCommand}" Background="{StaticResource MsOrangeBrush}" Style="{StaticResource PrimaryButtonStyle}" Margin="8,0,0,0" ToolTip="Carga los primeros 50 registros para validar columnas y datos antes de exportar." />
 
                     <Button x:Name="btnExport" Content="Exportar" Command="{Binding ExtractCommand}" Background="{StaticResource MsGreenBrush}" Style="{StaticResource PrimaryButtonStyle}" Margin="0" IsEnabled="{Binding ElementName=ResultsGridProxy, Path=HasItems}" />
 
