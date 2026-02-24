@@ -285,80 +285,116 @@ public class AuditService : IAuditService
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    // Guard Clauses para referencias huérfanas o GUIDs vacíos
+                    var auditIdRaw   = entity.GetAttributeValue<Guid>("auditid").ToString();
+                    var createdOnRaw = entity.GetAttributeValue<DateTime>("createdon");
+                    var createdOnStr = createdOnRaw == default
+                        ? string.Empty
+                        : createdOnRaw.ToUniversalTime().ToString("O");
+
+                    // ── GUARD: objectid con Guid.Empty o LogicalName vacío ────────────────
+                    // El SDK lanza FaultException si intentamos resolver metadatos de un
+                    // registro cuyo GUID es 00000000 (entidades "fantasma" de soluciones
+                    // desinstaladas). En vez de saltar el registro (continue), lo incluimos
+                    // en el export con valores seguros para diagnóstico.
                     var objectRef = entity.GetAttributeValue<EntityReference>("objectid");
                     if (objectRef != null && (objectRef.Id == Guid.Empty || string.IsNullOrWhiteSpace(objectRef.LogicalName)))
                     {
-                        // Registro corrupto, saltar
-                        continue;
-                    }
-                    var userRef = entity.GetAttributeValue<EntityReference>("userid");
-                    if (userRef != null && userRef.Id == Guid.Empty)
-                    {
-                        continue;
-                    }
-                    var callingUserRef = entity.GetAttributeValue<EntityReference>("callinguserid");
-                    if (callingUserRef != null && callingUserRef.Id == Guid.Empty)
-                    {
-                        continue;
-                    }
-
-                    var changeData = entity.GetAttributeValue<string>("changedata") ?? string.Empty;
-                    var attributeMask = entity.GetAttributeValue<string>("attributemask") ?? string.Empty;
-                    var change = ParseChangeData(changeData);
-
-                    if (!ShouldIncludeRecord(attributeMask, change.field, selectedAttributes))
-                    {
-                        continue;
-                    }
-
-                    try
-                    {
-                        row = await BuildExportRowAsync(entity, change, cancellationToken);
-                    }
-                    catch
-                    {
-                        // Si falla la construcción de la fila, devolver registro corrupto
                         row = new AuditExportRow
                         {
-                            AuditId = entity.GetAttributeValue<Guid>("auditid").ToString(),
-                            CreatedOn = entity.GetAttributeValue<DateTime>("createdon").ToString("O"),
-                            EntityName = objectRef?.LogicalName ?? "Desconocido",
-                            RecordId = objectRef?.Id.ToString() ?? string.Empty,
-                            LogicalName = objectRef?.LogicalName ?? "Desconocido",
-                            RecordUrl = string.Empty,
-                            ActionCode = 0,
-                            ActionName = "Registro Corrupto",
-                            UserId = userRef?.Id.ToString() ?? string.Empty,
-                            UserName = "Registro Corrupto",
-                            RealActor = "Registro Corrupto",
-                            TransactionId = string.Empty,
-                            ChangedField = change.field,
-                            OldValue = "Registro Corrupto",
-                            NewValue = "Registro Corrupto"
+                            AuditId        = auditIdRaw,
+                            CreatedOn      = createdOnStr,
+                            EntityName     = "[Registro No Encontrado o Eliminado]",
+                            RecordId       = "[Guid.Empty]",
+                            LogicalName    = "[Registro No Encontrado o Eliminado]",
+                            RecordUrl      = string.Empty,
+                            ActionCode     = entity.GetAttributeValue<OptionSetValue>("action")?.Value ?? 0,
+                            ActionName     = "[Referencia Corrupta - Guid.Empty]",
+                            UserId         = string.Empty,
+                            UserName       = "[Registro No Encontrado o Eliminado]",
+                            RealActor      = "[Registro No Encontrado o Eliminado]",
+                            TransactionId  = string.Empty,
+                            ChangedField   = string.Empty,
+                            OldValue       = "[Registro No Encontrado o Eliminado]",
+                            NewValue       = "[Registro No Encontrado o Eliminado]"
                         };
+                        // No hacemos continue: el registro con valores seguros fluye hasta yield return
+                    }
+                    else
+                    {
+                        // ── GUARD: userid/callinguserid con Guid.Empty ───────────────────
+                        // Si el GUID del usuario es vacío, no llamamos al SDK para resolverlo;
+                        // simplemente lo ignoramos para esa propiedad.
+                        var userRef = entity.GetAttributeValue<EntityReference>("userid");
+                        if (userRef != null && userRef.Id == Guid.Empty)
+                        {
+                            // Nulificamos la referencia para que BuildExportRowAsync no llame al SDK
+                            entity.Attributes.Remove("userid");
+                        }
+                        var callingUserRef = entity.GetAttributeValue<EntityReference>("callinguserid");
+                        if (callingUserRef != null && callingUserRef.Id == Guid.Empty)
+                        {
+                            entity.Attributes.Remove("callinguserid");
+                        }
+
+                        var changeData    = entity.GetAttributeValue<string>("changedata") ?? string.Empty;
+                        var attributeMask = entity.GetAttributeValue<string>("attributemask") ?? string.Empty;
+                        var change        = ParseChangeData(changeData);
+
+                        if (!ShouldIncludeRecord(attributeMask, change.field, selectedAttributes))
+                        {
+                            continue;
+                        }
+
+                        try
+                        {
+                            row = await BuildExportRowAsync(entity, change, cancellationToken);
+                        }
+                        catch
+                        {
+                            // Si BuildExportRowAsync falla (FaultException u otro), producir
+                            // fila con valores seguros en lugar de abortar la extracción.
+                            row = new AuditExportRow
+                            {
+                                AuditId       = auditIdRaw,
+                                CreatedOn     = createdOnStr,
+                                EntityName    = objectRef?.LogicalName ?? "[Desconocido]",
+                                RecordId      = objectRef?.Id.ToString() ?? string.Empty,
+                                LogicalName   = objectRef?.LogicalName ?? "[Desconocido]",
+                                RecordUrl     = string.Empty,
+                                ActionCode    = 0,
+                                ActionName    = "[Registro No Encontrado o Eliminado]",
+                                UserId        = string.Empty,
+                                UserName      = "[Registro No Encontrado o Eliminado]",
+                                RealActor     = "[Registro No Encontrado o Eliminado]",
+                                TransactionId = string.Empty,
+                                ChangedField  = change.field,
+                                OldValue      = "[Registro No Encontrado o Eliminado]",
+                                NewValue      = "[Registro No Encontrado o Eliminado]"
+                            };
+                        }
                     }
                 }
                 catch
                 {
-                    // Si ocurre cualquier error, devolver registro corrupto genérico
+                    // Red de seguridad exterior: cualquier error no previsto produce una fila
+                    // con valores seguros en lugar de abortar todo el proceso de exportación.
                     row = new AuditExportRow
                     {
-                        AuditId = string.Empty,
-                        CreatedOn = string.Empty,
-                        EntityName = "Registro Corrupto",
-                        RecordId = string.Empty,
-                        LogicalName = "Registro Corrupto",
-                        RecordUrl = string.Empty,
-                        ActionCode = 0,
-                        ActionName = "Registro Corrupto",
-                        UserId = string.Empty,
-                        UserName = "Registro Corrupto",
-                        RealActor = "Registro Corrupto",
+                        AuditId       = string.Empty,
+                        CreatedOn     = string.Empty,
+                        EntityName    = "[Registro No Encontrado o Eliminado]",
+                        RecordId      = string.Empty,
+                        LogicalName   = "[Registro No Encontrado o Eliminado]",
+                        RecordUrl     = string.Empty,
+                        ActionCode    = 0,
+                        ActionName    = "[Registro No Encontrado o Eliminado]",
+                        UserId        = string.Empty,
+                        UserName      = "[Registro No Encontrado o Eliminado]",
+                        RealActor     = "[Registro No Encontrado o Eliminado]",
                         TransactionId = string.Empty,
-                        ChangedField = string.Empty,
-                        OldValue = "Registro Corrupto",
-                        NewValue = "Registro Corrupto"
+                        ChangedField  = string.Empty,
+                        OldValue      = "[Registro No Encontrado o Eliminado]",
+                        NewValue      = "[Registro No Encontrado o Eliminado]"
                     };
                 }
 
@@ -408,9 +444,10 @@ public class AuditService : IAuditService
         var oldValue = await ResolveNameIfReferenceAsync(parsedChange.oldValue, fieldName, cancellationToken);
         var newValue = await ResolveNameIfReferenceAsync(parsedChange.newValue, fieldName, cancellationToken);
 
+        // Guard: no llamar al SDK si el Id del usuario es Guid.Empty
         var userName = !string.IsNullOrWhiteSpace(userRef?.Name)
             ? userRef.Name
-            : (userRef?.Id is Guid userId
+            : (userRef?.Id is Guid userId && userId != Guid.Empty
                 ? await ResolveEntityPrimaryNameAsync("systemuser", userId, cancellationToken)
                 : null)
             ?? string.Empty;
@@ -651,6 +688,12 @@ public class AuditService : IAuditService
 
     private async Task<string?> ResolveEntityPrimaryNameAsync(string entityLogicalName, Guid id, CancellationToken cancellationToken)
     {
+        // Guard: un Guid.Empty causaría FaultException en el SDK ("entity with id 00000000...")
+        if (id == Guid.Empty)
+        {
+            return null;
+        }
+
         if (_serviceClient is null || !_serviceClient.IsReady)
         {
             return null;
