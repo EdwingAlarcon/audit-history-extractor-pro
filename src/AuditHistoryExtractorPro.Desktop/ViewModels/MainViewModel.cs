@@ -169,6 +169,53 @@ public partial class MainViewModel : ObservableObject
             IsConnected = false;
             ProgressValue = 0;
             StatusMessage = $"Error de conexión: {ex.Message}";
+
+            // ── LOG DE EMERGENCIA ────────────────────────────────────────────
+            try
+            {
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine("=====================================================");
+                sb.AppendLine($"AuditHistoryExtractorPro — Error de Conexión");
+                sb.AppendLine($"Fecha y Hora : {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+                sb.AppendLine("=====================================================");
+                sb.AppendLine();
+                sb.AppendLine($"[Mensaje]       {ex.Message}");
+                sb.AppendLine();
+                sb.AppendLine($"[StackTrace]");
+                sb.AppendLine(ex.StackTrace);
+
+                if (ex.InnerException is { } inner)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine($"[InnerException.Mensaje]  {inner.Message}");
+                    sb.AppendLine($"[InnerException.StackTrace]");
+                    sb.AppendLine(inner.StackTrace);
+                }
+
+                var logPath = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                    "AuditApp_ErrorLog.txt");
+
+                System.IO.File.WriteAllText(logPath, sb.ToString(), System.Text.Encoding.UTF8);
+
+                System.Windows.MessageBox.Show(
+                    $"La conexión a Dataverse falló.\n\n" +
+                    $"Mensaje: {ex.Message}\n\n" +
+                    $"Se ha generado un log detallado en tu Escritorio:\n{logPath}",
+                    "Error de Conexión — AuditHistoryExtractorPro",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Error);
+            }
+            catch
+            {
+                // Si el propio log falla, mostramos al menos el MessageBox básico
+                System.Windows.MessageBox.Show(
+                    $"La conexión a Dataverse falló y no se pudo escribir el log de error.\n\nDetalle: {ex.Message}",
+                    "Error de Conexión",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Error);
+            }
+            // ────────────────────────────────────────────────────────────────
         }
         finally
         {
