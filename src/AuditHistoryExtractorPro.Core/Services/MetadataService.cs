@@ -63,7 +63,24 @@ public sealed class MetadataService : IMetadataService
                 ClientVersionStamp = null
             };
 
-            var response = await client.ExecuteAsync(request, cancellationToken) as RetrieveMetadataChangesResponse;
+            RetrieveMetadataChangesResponse? response;
+            try
+            {
+                response = await client.ExecuteAsync(request, cancellationToken) as RetrieveMetadataChangesResponse;
+            }
+            catch (System.ServiceModel.FaultException faultEx)
+            {
+                throw new InvalidOperationException(
+                    $"Error al descargar metadatos de Dataverse. El entorno puede contener entidades con metadatos corruptos (soluciones desinstaladas). " +
+                    $"Detalle técnico: {faultEx.Message}", faultEx);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                throw new InvalidOperationException(
+                    $"No se pudo completar la descarga de metadatos de entidades auditables. " +
+                    $"Detalle técnico: {ex.Message}", ex);
+            }
+
             if (response?.EntityMetadata is null)
             {
                 return Array.Empty<EntityDTO>();
