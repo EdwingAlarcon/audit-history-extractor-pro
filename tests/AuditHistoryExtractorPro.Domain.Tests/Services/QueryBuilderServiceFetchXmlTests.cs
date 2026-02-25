@@ -92,4 +92,31 @@ public class QueryBuilderServiceFetchXmlTests
         fetchXml.Should().NotContain("<condition attribute='action' operator='in'>");
         fetchXml.Should().NotContain("<condition attribute='objectid' operator='in'>");
     }
+
+    [Fact]
+    public void BuildBaseAuditQuery_ShouldEscapePagingCookie_WithSpecialXmlCharacters()
+    {
+        // Arrange
+        var service = new QueryBuilderService();
+        var filters = new AuditQueryFilters
+        {
+            EntityName = "10142",
+            SelectedDateRange = DateRangeFilter.Todo
+        };
+
+        var pagingCookie = "<cookie page='2' attr=\"A&B\">x<y>z</cookie>";
+
+        // Act
+        var fetchXml = service.BuildBaseAuditQuery(filters, pageNumber: 2, pageSize: 5000, pagingCookie: pagingCookie);
+
+        // Assert
+        fetchXml.Should().Contain("paging-cookie='");
+        fetchXml.Should().Contain("&lt;cookie");
+        fetchXml.Should().Contain("&amp;B");
+        fetchXml.Should().Contain("&gt;");
+
+        // El valor crudo no debe aparecer en el XML final
+        fetchXml.Should().NotContain("<cookie page='2'");
+        fetchXml.Should().NotContain("attr=\"A&B\"");
+    }
 }
