@@ -549,53 +549,8 @@ public class AuditService : IAuditService
         string? pagingCookie,
         int pageSize)
     {
-        // ── PASO 1: obtener la consulta base con todos los filtros estándar ──────
-        var query = _queryBuilderService.BuildQueryExpression(
-            filters, pageNumber, pagingCookie, pageSize);
-
-        // ── PASO 2: blindaje explícito de fechas (solo DateRangeFilter.Personalizado) ──
-        // Si el usuario especificó un rango de fechas con los date-pickers,
-        // StartDate y EndDate llegan aquí con Kind=Unspecified (DateTime.Date).
-        // ToUniversalTime() sobre Kind=Unspecified los trata como hora Local,
-        // lo que es correcto ya que el usuario opera en su zona horaria.
-        if (filters.SelectedDateRange == DateRangeFilter.Personalizado)
-        {
-            // Filtro de Fecha Inicial (≥ inicio del intervalo en UTC) ──────────
-            if (filters.StartDate.HasValue && filters.StartDate.Value != DateTime.MinValue)
-            {
-                query.Criteria.AddCondition(
-                    "createdon",
-                    ConditionOperator.GreaterEqual,
-                    filters.StartDate.Value.ToUniversalTime());
-
-                _logger.LogDebug(
-                    "[BuildBaseAuditQuery] createdon >= {StartUtc:o} (StartDate blindado)",
-                    filters.StartDate.Value.ToUniversalTime());
-            }
-
-            // Filtro de Fecha Final (≤ fin del intervalo en UTC) ──────────────
-            if (filters.EndDate.HasValue && filters.EndDate.Value != DateTime.MinValue)
-            {
-                // IsFullDay=true  → último instante del día: 23:59:59.9999999
-                // IsFullDay=false → el usuario especificó una hora explícita;
-                //                   añadimos :59 segundos para cubrir el minuto
-                //                   completo (paridad con ResolveDateRange).
-                var endBoundary = filters.IsFullDay
-                    ? filters.EndDate.Value.Date.AddDays(1).AddTicks(-1)
-                    : filters.EndDate.Value.AddSeconds(59);
-
-                query.Criteria.AddCondition(
-                    "createdon",
-                    ConditionOperator.LessEqual,
-                    endBoundary.ToUniversalTime());
-
-                _logger.LogDebug(
-                    "[BuildBaseAuditQuery] createdon <= {EndUtc:o} (EndDate blindado, IsFullDay={IsFullDay})",
-                    endBoundary.ToUniversalTime(), filters.IsFullDay);
-            }
-        }
-
-        return query;
+        // Fuente única de filtros para evitar redundancia (especialmente createdon).
+        return _queryBuilderService.BuildQueryExpression(filters, pageNumber, pagingCookie, pageSize);
     }
 
     private async Task<PageResult> FetchPageWithFallbackAsync(

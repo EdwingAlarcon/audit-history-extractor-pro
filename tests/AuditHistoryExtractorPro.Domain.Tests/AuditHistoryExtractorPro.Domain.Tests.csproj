@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AuditHistoryExtractorPro.Domain\AuditHistoryExtractorPro.Domain.csproj" />
+    <ProjectReference Include="..\..\src\AuditHistoryExtractorPro.Core\AuditHistoryExtractorPro.Core.csproj" />
   </ItemGroup>
 
 </Project>

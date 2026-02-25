@@ -1,5 +1,6 @@
 using AuditHistoryExtractorPro.Core.Models;
 using Microsoft.Xrm.Sdk.Query;
+using System.Globalization;
 using System.Text;
 
 namespace AuditHistoryExtractorPro.Core.Services;
@@ -119,11 +120,11 @@ public class QueryBuilderService
         return BuildAuditQuery(filters, pageNumber, pagingCookie, pageSize);
     }
 
-    public string BuildFetchXml(AuditQueryFilters filters, int pageNumber, int pageSize, string? pagingCookie = null)
+    public string BuildBaseAuditQuery(AuditQueryFilters filters, int pageNumber, int pageSize, string? pagingCookie = null)
     {
         var (fromDate, toDate) = ResolveDateRange(filters);
         var sb = new StringBuilder();
-        sb.Append($"<fetch version='1.0' output-format='xml-platform' mapping='logical' count='{pageSize}' page='{pageNumber}'");
+        sb.Append($"<fetch version='1.0' output-format='xml-platform' mapping='logical' no-lock='true' count='{pageSize}' page='{pageNumber}'");
         if (!string.IsNullOrWhiteSpace(pagingCookie))
         {
             sb.Append($" paging-cookie='{System.Security.SecurityElement.Escape(pagingCookie)}'");
@@ -144,16 +145,23 @@ public class QueryBuilderService
         sb.Append("    <filter type='and'>\n");
         // objecttypecode: siempre minúsculas (coherente con BuildAuditQuery).
         var entityCodeFx = (filters.EntityName ?? string.Empty).Trim().ToLowerInvariant();
-        sb.Append($"      <condition attribute='objecttypecode' operator='eq' value='{entityCodeFx}' />\n");
+        if (!string.IsNullOrWhiteSpace(entityCodeFx))
+        {
+            sb.Append($"      <condition attribute='objecttypecode' operator='eq' value='{System.Security.SecurityElement.Escape(entityCodeFx)}' />\n");
+        }
 
+        // Fechas UTC estrictas ISO 8601: yyyy-MM-ddTHH:mm:ssZ
+        // y SIN duplicar nodos createdon dentro del mismo <filter>.
         if (fromDate.HasValue)
         {
-            sb.Append($"      <condition attribute='createdon' operator='on-or-after' value='{fromDate.Value:yyyy-MM-ddTHH:mm:ssZ}' />\n");
+            var fromUtc = NormalizeToUtc(fromDate.Value);
+            sb.Append($"      <condition attribute='createdon' operator='on-or-after' value='{FormatUtcIso8601(fromUtc)}' />\n");
         }
 
         if (toDate.HasValue)
         {
-            sb.Append($"      <condition attribute='createdon' operator='on-or-before' value='{toDate.Value:yyyy-MM-ddTHH:mm:ssZ}' />\n");
+            var toUtc = NormalizeToUtc(toDate.Value);
+            sb.Append($"      <condition attribute='createdon' operator='on-or-before' value='{FormatUtcIso8601(toUtc)}' />\n");
         }
 
         // Bypass si no hay operaciones seleccionadas.
@@ -211,6 +219,29 @@ public class QueryBuilderService
         sb.Append("  </entity>\n</fetch>");
 
         return sb.ToString();
+    }
+
+    public string BuildFetchXml(AuditQueryFilters filters, int pageNumber, int pageSize, string? pagingCookie = null)
+    {
+        // Compatibilidad hacia atrás: los consumidores existentes mantienen
+        // el mismo punto de entrada, pero ahora usan la versión saneada.
+        return BuildBaseAuditQuery(filters, pageNumber, pageSize, pagingCookie);
+    }
+
+    private static DateTime NormalizeToUtc(DateTime value)
+    {
+        return value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Local).ToUniversalTime()
+        };
+    }
+
+    private static string FormatUtcIso8601(DateTime utc)
+    {
+        var safeUtc = utc.Kind == DateTimeKind.Utc ? utc : utc.ToUniversalTime();
+        return safeUtc.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
     }
 
     private static (DateTime? fromDate, DateTime? toDate) ResolveDateRange(AuditQueryFilters filters)
