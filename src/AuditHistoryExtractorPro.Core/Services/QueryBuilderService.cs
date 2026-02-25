@@ -95,13 +95,15 @@ public class QueryBuilderService
             query.Criteria.AddCondition("objectid", ConditionOperator.Equal, recordId);
         }
 
-        // objectid IN — filtro por IDs resueltos desde una Vista (chunk de max 500)
+        // objectid IN — filtro por IDs resueltos desde una Vista (chunk de max 500).
+        // Usamos ConditionExpression.Values.AddRange en lugar de AddCondition(params object[])
+        // para evitar el quirk del SDK donde el array entero se serializa como un único valor.
+        // StreamAllChunksAsync garantiza que ObjectIds.Count <= 500 en cada llamada.
         if (filters.ObjectIds.Count > 0)
         {
-            query.Criteria.AddCondition(
-                "objectid",
-                ConditionOperator.In,
-                filters.ObjectIds.Select(id => (object)id).ToArray());
+            var idCond = new ConditionExpression("objectid", ConditionOperator.In);
+            idCond.Values.AddRange(filters.ObjectIds.Select(id => (object)id));
+            query.Criteria.Conditions.Add(idCond);
         }
 
         query.Orders.Add(new OrderExpression("createdon", OrderType.Ascending));

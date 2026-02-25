@@ -227,9 +227,24 @@ public class AuditService : IAuditService
         var objectIds = await ResolveViewObjectIdsAsync(previewRequest.SelectedView, cancellationToken);
 
         var rows = new List<AuditExportRow>(maxRows);
-        await foreach (var row in StreamRowsAsync(previewRequest, objectIds, progress: null, updateCount: _ => { }, cancellationToken))
+
+        // BUG FIX: si hay IDs de Vista, NO pasarlos todos a StreamRowsAsync (que los mete en
+        // un único IN clause → Query Size Limit en Dataverse con >500 IDs).
+        // En su lugar se usa el mismo camino chunked que ExtractAuditHistoryAsync.
+        IAsyncEnumerable<AuditExportRow> previewStream;
+        if (objectIds.Count == 0)
+        {
+            previewStream = StreamRowsAsync(previewRequest, null, progress: null, updateCount: _ => { }, cancellationToken);
+        }
+        else
+        {
+            previewStream = StreamAllChunksAsync(previewRequest, objectIds, progress: null, updateCount: _ => { }, cancellationToken);
+        }
+
+        await foreach (var row in previewStream)
         {
             rows.Add(row);
+            if (rows.Count >= maxRows) break;  // hard cap de seguridad
         }
 
         return rows;
