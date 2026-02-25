@@ -9,14 +9,15 @@ public class AuthHelper
 {
     public AuthenticationConfiguration BuildConfiguration(ConnectionSettings settings)
     {
-        if (!Uri.TryCreate(settings.EnvironmentUrl, UriKind.Absolute, out _))
+        var normalizedUrl = NormalizeServiceUrl(settings.EnvironmentUrl);
+        if (!Uri.TryCreate(normalizedUrl, UriKind.Absolute, out _))
         {
             throw new InvalidOperationException("La URL del entorno Dataverse no es válida.");
         }
 
         return new AuthenticationConfiguration
         {
-            EnvironmentUrl = settings.EnvironmentUrl.Trim(),
+            EnvironmentUrl = normalizedUrl,
             TenantId = settings.TenantId,
             ClientId = settings.ClientId,
             ClientSecret = settings.ClientSecret,
@@ -42,5 +43,28 @@ public class AuthHelper
                 configuration,
                 logger: new CoreDomainLogger<OAuth2AuthenticationProvider>())
         };
+    }
+
+    private static string NormalizeServiceUrl(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = value.Trim();
+
+        var open = trimmed.LastIndexOf('(');
+        var close = trimmed.LastIndexOf(')');
+        if (open >= 0 && close > open)
+        {
+            var candidate = trimmed.Substring(open + 1, close - open - 1).Trim();
+            if (Uri.TryCreate(candidate, UriKind.Absolute, out _))
+            {
+                return candidate;
+            }
+        }
+
+        return trimmed;
     }
 }

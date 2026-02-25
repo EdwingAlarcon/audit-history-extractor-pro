@@ -40,6 +40,7 @@ public sealed class ConnectionProvider
 
         foreach (var connection in persisted)
         {
+            connection.Url = SavedConnection.NormalizeServiceUrl(connection.Url);
             connection.Password = Unprotect(connection.Password);
         }
 
@@ -57,7 +58,7 @@ public sealed class ConnectionProvider
         var normalized = new SavedConnection
         {
             ConnectionName = connection.ConnectionName,
-            Url = connection.Url,
+            Url = SavedConnection.NormalizeServiceUrl(connection.Url),
             User = connection.User,
             Password = encryptedPassword,
             EnvironmentType = connection.EnvironmentType,
@@ -164,7 +165,7 @@ public sealed class ConnectionProvider
                 var migrated = legacyProfiles.Select(lp => new SavedConnection
                 {
                     ConnectionName = lp.Name,
-                    Url = lp.Url,
+                    Url = SavedConnection.NormalizeServiceUrl(lp.Url),
                     User = lp.UserName,
                     Password = Protect(lp.Credential),
                     EnvironmentType = ResolveEnvironmentType(lp.Url, null),
@@ -202,7 +203,7 @@ public sealed class ConnectionProvider
             var migratedFromProfiles = legacyProfilesFromSameFile.Select(lp => new SavedConnection
             {
                 ConnectionName = lp.Name,
-                Url = lp.Url,
+                Url = SavedConnection.NormalizeServiceUrl(lp.Url),
                 User = lp.UserName,
                 Password = Protect(lp.Credential),
                 EnvironmentType = ResolveEnvironmentType(lp.Url, null),
@@ -216,7 +217,7 @@ public sealed class ConnectionProvider
         var migratedFromLegacySaved = legacySaved.Select(ls => new SavedConnection
         {
             ConnectionName = ls.Name,
-            Url = ls.ServiceUrl,
+            Url = SavedConnection.NormalizeServiceUrl(ls.ServiceUrl),
             User = ls.Username,
             // Si ya venía como EncryptedPassword, se conserva tal cual;
             // si viene vacío, se cifra el fallback Credential.

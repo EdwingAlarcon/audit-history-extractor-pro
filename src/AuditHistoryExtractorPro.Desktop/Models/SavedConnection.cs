@@ -11,6 +11,7 @@ public sealed class SavedConnection
 {
     public string ConnectionName { get; set; } = string.Empty;
     public string Url { get; set; } = string.Empty;
+    public string ServiceUrl => NormalizeServiceUrl(Url);
     public string User { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
     public EnvironmentType EnvironmentType { get; set; } = EnvironmentType.Prod;
@@ -19,4 +20,23 @@ public sealed class SavedConnection
     public override string ToString() => string.IsNullOrWhiteSpace(ConnectionName)
         ? Url
         : $"{ConnectionName} ({Url})";
+
+    public static string NormalizeServiceUrl(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+
+        var trimmed = value.Trim();
+        var open = trimmed.LastIndexOf('(');
+        var close = trimmed.LastIndexOf(')');
+        if (open >= 0 && close > open)
+        {
+            var candidate = trimmed.Substring(open + 1, close - open - 1).Trim();
+            if (Uri.TryCreate(candidate, UriKind.Absolute, out _))
+            {
+                return candidate;
+            }
+        }
+
+        return trimmed;
+    }
 }

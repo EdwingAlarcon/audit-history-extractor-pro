@@ -164,9 +164,10 @@ public partial class MainViewModel : ObservableObject
 
         try
         {
+            var normalizedUrl = SavedConnection.NormalizeServiceUrl(CrmUrl);
             var settings = new ConnectionSettings
             {
-                EnvironmentUrl = CrmUrl
+                EnvironmentUrl = normalizedUrl
             };
 
             await Task.Run(async () => await _auditService.ConnectAsync(settings), CancellationToken.None);
@@ -514,7 +515,7 @@ public partial class MainViewModel : ObservableObject
         ProfileName = value.ConnectionName;
         ProfileUserName = value.User;
         ProfileCredential = value.Password;
-        CrmUrl = value.Url;
+        CrmUrl = value.ServiceUrl;
     }
 
     private async Task LoadAuditableEntitiesAsync()
@@ -939,28 +940,40 @@ public partial class MainViewModel : ObservableObject
 
     private async Task SaveOrUpdateCurrentProfileAsync(bool markAsUsed)
     {
-        if (string.IsNullOrWhiteSpace(CrmUrl))
+        var normalizedUrl = SavedConnection.NormalizeServiceUrl(CrmUrl);
+        if (string.IsNullOrWhiteSpace(normalizedUrl))
         {
             return;
         }
 
         var normalizedName = string.IsNullOrWhiteSpace(ProfileName)
-            ? BuildProfileNameFromUrl(CrmUrl)
+            ? BuildProfileNameFromUrl(normalizedUrl)
             : ProfileName.Trim();
 
         var profile = new SavedConnection
         {
             ConnectionName = normalizedName,
-            Url = CrmUrl.Trim(),
+            Url = normalizedUrl,
             User = ProfileUserName.Trim(),
             Password = ProfileCredential,
-            EnvironmentType = ResolveEnvironmentType(CrmUrl),
+            EnvironmentType = ResolveEnvironmentType(normalizedUrl),
             LastUsed = markAsUsed ? DateTime.UtcNow : SelectedConnectionProfile?.LastUsed ?? DateTime.UtcNow
         };
 
         await _connectionProvider.SaveConnection(profile);
         ProfileName = profile.ConnectionName;
+        CrmUrl = profile.ServiceUrl;
         SelectedConnectionProfile = profile;
+    }
+
+    public void UpdateProfileCredential(string? password)
+    {
+        ProfileCredential = password ?? string.Empty;
+    }
+
+    public string GetProfileCredential()
+    {
+        return ProfileCredential;
     }
 
     private static EnvironmentType ResolveEnvironmentType(string serviceUrl)

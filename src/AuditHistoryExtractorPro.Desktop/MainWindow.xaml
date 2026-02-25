@@ -140,7 +140,7 @@
                                 <TextBox Height="32" Margin="0,0,0,8" Text="{Binding ProfileUserName, UpdateSourceTrigger=PropertyChanged}" />
 
                                 <TextBlock Text="Credencial" Style="{StaticResource SectionTitleStyle}" Margin="0,0,0,6" />
-                                <TextBox Height="32" Margin="0,0,0,8" Text="{Binding ProfileCredential, UpdateSourceTrigger=PropertyChanged}" />
+                                <PasswordBox x:Name="ProfilePasswordBox" Height="32" Margin="0,0,0,8" PasswordChanged="ProfilePasswordBox_PasswordChanged" />
 
                                 <StackPanel Orientation="Horizontal">
                                     <Button Content="Guardar Perfil" Command="{Binding SaveProfileCommand}" Margin="0,0,6,0" />
