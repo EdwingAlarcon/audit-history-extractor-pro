@@ -30,11 +30,32 @@
 
     <Grid>
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Margin="16">
+        <Border Grid.Row="0" Background="{Binding SelectedEnvironmentColor}" Padding="10,8">
+            <DockPanel LastChildFill="False">
+                <TextBlock Text="Conexión activa" Foreground="White" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0" />
+                <ComboBox Width="420"
+                          Height="32"
+                          ItemsSource="{Binding ConnectionProfiles}"
+                          SelectedItem="{Binding SelectedConnectionProfile, Mode=TwoWay}">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal">
+                                <Border Width="10" Height="10" CornerRadius="5" Background="{Binding EnvironmentColor}" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Margin="0,0,6,0" />
+                                <TextBlock Text="{Binding ServiceUrl}" Foreground="#F3F2F1" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+            </DockPanel>
+        </Border>
+
+        <Grid Grid.Row="1" Margin="16">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="3*" />
                 <ColumnDefinition Width="7*" />
@@ -48,7 +69,17 @@
                         <GroupBox Header="Conexión" Margin="0,0,0,14" Padding="10,8">
                             <StackPanel>
                                 <TextBlock Text="URL de Dataverse" Style="{StaticResource SectionTitleStyle}" Margin="0,0,0,6" />
-                                <ComboBox IsEditable="True" Height="32" Margin="0,0,0,8" ItemsSource="{Binding ConnectionProfiles}" SelectedItem="{Binding SelectedConnectionProfile, Mode=TwoWay}" DisplayMemberPath="Url" Text="{Binding CrmUrl, UpdateSourceTrigger=PropertyChanged}" />
+                                <ComboBox IsEditable="True" Height="32" Margin="0,0,0,8" ItemsSource="{Binding ConnectionProfiles}" SelectedItem="{Binding SelectedConnectionProfile, Mode=TwoWay}" Text="{Binding CrmUrl, UpdateSourceTrigger=PropertyChanged}">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal">
+                                                <Border Width="10" Height="10" CornerRadius="5" Background="{Binding EnvironmentColor}" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Margin="0,0,6,0" />
+                                                <TextBlock Text="{Binding ServiceUrl}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
 
                                 <TextBlock Text="Nombre de perfil" Style="{StaticResource SectionTitleStyle}" Margin="0,0,0,6" />
                                 <TextBox Height="32" Margin="0,0,0,8" Text="{Binding ProfileName, UpdateSourceTrigger=PropertyChanged}" />
@@ -208,7 +239,7 @@
             </Grid>
         </Grid>
 
-        <Border Grid.Row="1" BorderBrush="#E1DFDD" BorderThickness="1,1,0,0" Background="#FAF9F8" Padding="14,10">
+        <Border Grid.Row="2" BorderBrush="#E1DFDD" BorderThickness="1,1,0,0" Background="#FAF9F8" Padding="14,10">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="260" />

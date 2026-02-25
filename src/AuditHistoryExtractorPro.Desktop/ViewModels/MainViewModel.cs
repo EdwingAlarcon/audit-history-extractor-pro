@@ -20,7 +20,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IAuditProcessingService _auditProcessingService;
     private readonly IMetadataService _metadataService;
     private readonly IDataService _dataService;
-    private readonly ConnectionManagerService _connectionManagerService;
+    private readonly ConnectionProvider _connectionProvider;
     private readonly ILogger<MainViewModel> _logger;
     private CancellationTokenSource? _userSearchCts;
 
@@ -54,8 +54,11 @@ public partial class MainViewModel : ObservableObject
     private string profileCredential = string.Empty;
 
     [ObservableProperty]
+    private string selectedEnvironmentColor = "#00A4EF";
+
+    [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(DeleteProfileCommand))]
-    private ConnectionProfile? selectedConnectionProfile;
+    private SavedConnection? selectedConnectionProfile;
 
     [ObservableProperty]
     private string entityName = "account";
@@ -110,7 +113,7 @@ public partial class MainViewModel : ObservableObject
 
     public IReadOnlyList<DateRangeFilter> DateRangeOptions { get; } = Enum.GetValues<DateRangeFilter>();
     public ObservableCollection<LookupItem> AvailableUsers { get; } = new();
-    public ObservableCollection<ConnectionProfile> ConnectionProfiles { get; } = new();
+    public ObservableCollection<SavedConnection> ConnectionProfiles { get; } = new();
     public ObservableCollection<EntityDTO> AvailableEntities { get; } = new();
     public ObservableCollection<ViewDTO> AvailableViews { get; } = new();
     public ObservableCollection<CheckableItem<AuditOperation>> OperationsList { get; } = new();
@@ -124,14 +127,14 @@ public partial class MainViewModel : ObservableObject
         IAuditProcessingService auditProcessingService,
         IMetadataService metadataService,
         IDataService dataService,
-        ConnectionManagerService connectionManagerService,
+        ConnectionProvider connectionProvider,
         ILogger<MainViewModel> logger)
     {
         _auditService = auditService;
         _auditProcessingService = auditProcessingService;
         _metadataService = metadataService;
         _dataService = dataService;
-        _connectionManagerService = connectionManagerService;
+        _connectionProvider = connectionProvider;
         _logger = logger;
 
         foreach (var operation in AuditMetadataService.GetAuditOperations())
@@ -467,7 +470,7 @@ public partial class MainViewModel : ObservableObject
         ManualFetchXml = value.FetchXml;
     }
 
-    partial void OnSelectedConnectionProfileChanged(ConnectionProfile? value)
+    partial void OnSelectedConnectionProfileChanged(SavedConnection? value)
     {
         if (value is null)
         {
@@ -475,9 +478,12 @@ public partial class MainViewModel : ObservableObject
         }
 
         ProfileName = value.Name;
-        ProfileUserName = value.UserName;
-        ProfileCredential = value.Credential;
-        CrmUrl = value.Url;
+        ProfileUserName = value.Username;
+        ProfileCredential = value.EncryptedPassword;
+        CrmUrl = value.ServiceUrl;
+        SelectedEnvironmentColor = string.IsNullOrWhiteSpace(value.EnvironmentColor)
+            ? "#00A4EF"
+            : value.EnvironmentColor;
     }
 
     private async Task LoadAuditableEntitiesAsync()
@@ -643,7 +649,7 @@ public partial class MainViewModel : ObservableObject
         }
 
         var name = SelectedConnectionProfile.Name;
-        await _connectionManagerService.DeleteProfileAsync(name);
+        await _connectionProvider.DeleteConnection(name);
         await LoadConnectionProfilesAsync();
 
         if (string.Equals(ProfileName, name, StringComparison.OrdinalIgnoreCase))
@@ -651,6 +657,7 @@ public partial class MainViewModel : ObservableObject
             ProfileName = string.Empty;
             ProfileUserName = string.Empty;
             ProfileCredential = string.Empty;
+            SelectedEnvironmentColor = "#00A4EF";
         }
 
         SelectedConnectionProfile = null;
@@ -874,7 +881,7 @@ public partial class MainViewModel : ObservableObject
 
     private async Task LoadConnectionProfilesAsync()
     {
-        var profiles = await _connectionManagerService.GetProfilesAsync();
+        var profiles = await _connectionProvider.GetConnections();
         ConnectionProfiles.Clear();
 
         foreach (var profile in profiles)
@@ -894,18 +901,31 @@ public partial class MainViewModel : ObservableObject
             ? BuildProfileNameFromUrl(CrmUrl)
             : ProfileName.Trim();
 
-        var profile = new ConnectionProfile
+        var profile = new SavedConnection
         {
             Name = normalizedName,
-            Url = CrmUrl.Trim(),
-            UserName = ProfileUserName.Trim(),
-            Credential = ProfileCredential,
+            ServiceUrl = CrmUrl.Trim(),
+            Username = ProfileUserName.Trim(),
+            EncryptedPassword = ProfileCredential,
+            EnvironmentColor = ResolveEnvironmentColor(CrmUrl),
             LastUsed = markAsUsed ? DateTime.UtcNow : SelectedConnectionProfile?.LastUsed ?? DateTime.UtcNow
         };
 
-        await _connectionManagerService.SaveProfileAsync(profile);
+        await _connectionProvider.SaveConnection(profile);
         ProfileName = profile.Name;
         SelectedConnectionProfile = profile;
+        SelectedEnvironmentColor = profile.EnvironmentColor;
+    }
+
+    private static string ResolveEnvironmentColor(string serviceUrl)
+    {
+        if (string.IsNullOrWhiteSpace(serviceUrl)) return "#00A4EF";
+
+        var value = serviceUrl.ToLowerInvariant();
+        if (value.Contains("prod") || value.Contains("crm")) return "#0078D4";
+        if (value.Contains("qa") || value.Contains("test")) return "#F7630C";
+        if (value.Contains("dev") || value.Contains("sandbox")) return "#107C10";
+        return "#00A4EF";
     }
 
     private static string BuildProfileNameFromUrl(string url)

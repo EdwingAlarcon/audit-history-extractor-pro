@@ -144,6 +144,7 @@ public partial class App : System.Windows.Application
 		services.AddSingleton<IAuditService>(sp => sp.GetRequiredService<AuditService>());
 		services.AddSingleton<IDataService, DataService>();
 		services.AddSingleton<IMetadataService, MetadataService>();
+		services.AddSingleton<ConnectionProvider>();
 		services.AddSingleton<ConnectionManagerService>();
 		services.AddSingleton<MainViewModel>();
 		services.AddSingleton<MainWindow>();
