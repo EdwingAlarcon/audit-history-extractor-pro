@@ -156,6 +156,11 @@ public class AuditService : IAuditService
             return Array.Empty<LookupItem>();
         }
 
+        // Filtra SOLO usuarios humanos activos:
+        //   isdisabled  == false → cuenta no desactivada
+        //   accessmode  == 0     → Read-Write (usuario normal)
+        //                          Excluye: 1=Admin-Only, 2=Non-interactive,
+        //                          3=Support User, 4=Delegated Admin
         var query = new QueryExpression("systemuser")
         {
             ColumnSet = new ColumnSet("systemuserid", "fullname"),
@@ -163,10 +168,11 @@ public class AuditService : IAuditService
             {
                 Conditions =
                 {
-                    new ConditionExpression("isdisabled", ConditionOperator.Equal, false)
+                    new ConditionExpression("isdisabled",  ConditionOperator.Equal, false),
+                    new ConditionExpression("accessmode",  ConditionOperator.Equal, 0)
                 }
             },
-            TopCount = 200
+            TopCount = 500
         };
 
         query.Orders.Add(new OrderExpression("fullname", OrderType.Ascending));
@@ -175,10 +181,10 @@ public class AuditService : IAuditService
         return users.Entities
             .Select(e => new LookupItem
             {
-                Id = e.GetAttributeValue<Guid>("systemuserid"),
+                Id   = e.GetAttributeValue<Guid>("systemuserid"),
                 Name = e.GetAttributeValue<string>("fullname") ?? "(sin nombre)"
             })
-            .Where(u => u.Id != Guid.Empty)
+            .Where(u => u.Id != Guid.Empty && !string.IsNullOrWhiteSpace(u.Name))
             .ToList();
     }
 
@@ -952,18 +958,41 @@ public class AuditService : IAuditService
         ViewDTO? view,
         CancellationToken cancellationToken)
     {
-        if (view is null || string.IsNullOrWhiteSpace(view.FetchXml) || _serviceClient is null)
+        if (view is null || view.Id == Guid.Empty || _serviceClient is null)
             return Array.Empty<Guid>();
 
+        // ── PASO 1A: asegurar que tenemos el FetchXML ────────────────────────
+        // Si el ViewDTO ya trajo el FetchXML desde MetadataService, lo usamos.
+        // Si está vacío (vistas personales / userquery no cargadas), lo
+        // recuperamos en caliente usando RetrieveRequest contra savedquery y,
+        // como fallback, contra userquery.
+        var fetchXml = view.FetchXml;
+        if (string.IsNullOrWhiteSpace(fetchXml))
+        {
+            fetchXml = await ResolveFetchXmlFromViewIdAsync(view.Id, cancellationToken);
+            if (string.IsNullOrWhiteSpace(fetchXml))
+            {
+                _logger.LogWarning(
+                    "[ResolveViewObjectIds] No se pudo obtener el FetchXML para ViewId={ViewId}",
+                    view.Id);
+                return Array.Empty<Guid>();
+            }
+        }
+
+        // ── PASO 1B: ejecutar el FetchXML paginado para obtener los IDs ──────
         var ids       = new List<Guid>();
         var page      = 1;
         string? cookie = null;
         bool   more   = true;
 
+        _logger.LogDebug(
+            "[ResolveViewObjectIds] Ejecutando FetchXML de Vista '{ViewName}' (Id={ViewId})",
+            view.Name, view.Id);
+
         while (more)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var paged = InjectPagingIntoFetchXml(view.FetchXml, page, cookie);
+            var paged = InjectPagingIntoFetchXml(fetchXml, page, cookie);
             try
             {
                 var ec = await ExecuteWithRetryAsync(
@@ -987,11 +1016,64 @@ public class AuditService : IAuditService
                 _logger.LogWarning(ex,
                     "[ResolveViewObjectIds] Error en pág {Page} del FetchXML de Vista; retornando IDs parciales",
                     page);
-                break; // Retornar los IDs recuperados hasta el momento
+                break;
             }
         }
 
+        _logger.LogInformation(
+            "[ResolveViewObjectIds] Vista '{ViewName}' → {Count} registros",
+            view.Name, ids.Count);
+
         return ids;
+    }
+
+    // ── Recupera el FetchXML de una Vista desde Dataverse por su ID.
+    // Intenta primero savedquery (vistas del sistema), luego userquery (personales).
+    private async Task<string?> ResolveFetchXmlFromViewIdAsync(
+        Guid viewId,
+        CancellationToken cancellationToken)
+    {
+        if (_serviceClient is null || viewId == Guid.Empty) return null;
+
+        // Intento 1: savedquery (vista del sistema)
+        try
+        {
+            var r = await Task.Run(() =>
+                _serviceClient.Retrieve("savedquery", viewId, new ColumnSet("fetchxml")),
+                cancellationToken);
+            var xml = r.GetAttributeValue<string>("fetchxml");
+            if (!string.IsNullOrWhiteSpace(xml))
+            {
+                _logger.LogDebug("[ResolveFetchXml] Obtenido desde savedquery Id={ViewId}", viewId);
+                return xml;
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[ResolveFetchXml] savedquery Id={ViewId} no encontrado; probando userquery", viewId);
+        }
+
+        // Intento 2: userquery (vista personal del usuario)
+        try
+        {
+            var r = await Task.Run(() =>
+                _serviceClient.Retrieve("userquery", viewId, new ColumnSet("fetchxml")),
+                cancellationToken);
+            var xml = r.GetAttributeValue<string>("fetchxml");
+            if (!string.IsNullOrWhiteSpace(xml))
+            {
+                _logger.LogDebug("[ResolveFetchXml] Obtenido desde userquery Id={ViewId}", viewId);
+                return xml;
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[ResolveFetchXml] userquery Id={ViewId} tampoco encontrado", viewId);
+        }
+
+        return null;
     }
 
     private static string InjectPagingIntoFetchXml(string fetchXml, int page, string? pagingCookie)

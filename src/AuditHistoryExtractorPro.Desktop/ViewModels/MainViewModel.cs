@@ -196,12 +196,18 @@ public partial class MainViewModel : ObservableObject
     private async Task ExtractAsync()
     {
         // ── Selector de ruta de guardado ───────────────────────────────────────────────────
+        // Nombre sugerido: usa el nombre de la Vista si hay una seleccionada,
+        // o el nombre lógico de la entidad como fallback.
+        var baseName = !string.IsNullOrWhiteSpace(SelectedView?.Name)
+            ? $"Auditoria_{SanitizeFileName(SelectedView!.Name)}_{DateTime.Now:yyyyMMdd_HHmm}"
+            : $"Auditoria_{EntityName}_{DateTime.Now:yyyyMMdd_HHmm}";
+
         var dialog = new Microsoft.Win32.SaveFileDialog
         {
-            Title       = "Guardar archivo de auditoría",
-            Filter      = "Excel Files (*.xlsx)|*.xlsx|CSV Files (*.csv)|*.csv",
-            DefaultExt  = ".xlsx",
-            FileName    = $"audit_{EntityName}_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx",
+            Title           = "Guardar archivo de auditoría",
+            Filter          = "Excel Files (*.xlsx)|*.xlsx",
+            DefaultExt      = ".xlsx",
+            FileName        = baseName + ".xlsx",
             OverwritePrompt = true
         };
 
@@ -803,5 +809,14 @@ public partial class MainViewModel : ObservableObject
         }
 
         return "Perfil";
+    }
+
+    /// <summary>
+    /// Reemplaza caracteres inválidos para nombre de archivo por guion bajo.
+    /// </summary>
+    private static string SanitizeFileName(string name)
+    {
+        var invalid = System.IO.Path.GetInvalidFileNameChars();
+        return string.Concat(name.Select(c => invalid.Contains(c) ? '_' : c));
     }
 }

@@ -1,5 +1,6 @@
 using AuditHistoryExtractorPro.Core.Models;
 using DataverseServiceClient = Microsoft.PowerPlatform.Dataverse.Client.ServiceClient;
+using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Metadata;
 using Microsoft.Xrm.Sdk.Metadata.Query;
 using Microsoft.Xrm.Sdk.Messages;
@@ -163,14 +164,45 @@ public sealed class MetadataService : IMetadataService
             query.Orders.Add(new OrderExpression("name", OrderType.Ascending));
 
             var result = await Task.Run(() => client.RetrieveMultiple(query), cancellationToken);
-            var views = result.Entities
+            var systemViews = result.Entities
                 .Select(e => new ViewDTO
                 {
-                    Id = e.GetAttributeValue<Guid>("savedqueryid"),
-                    Name = e.GetAttributeValue<string>("name") ?? "(sin nombre)",
+                    Id       = e.GetAttributeValue<Guid>("savedqueryid"),
+                    Name     = e.GetAttributeValue<string>("name") ?? "(sin nombre)",
                     FetchXml = e.GetAttributeValue<string>("fetchxml") ?? string.Empty
                 })
-                .Where(v => v.Id != Guid.Empty)
+                .Where(v => v.Id != Guid.Empty && !string.IsNullOrWhiteSpace(v.FetchXml));
+
+            // Vistas personales del usuario (userquery)
+            var userQuery = new QueryExpression("userquery")
+            {
+                ColumnSet = new ColumnSet("name", "userqueryid", "fetchxml"),
+                Criteria = new FilterExpression(LogicalOperator.And)
+                {
+                    Conditions =
+                    {
+                        new ConditionExpression("returnedtypecode", ConditionOperator.Equal, normalizedEntity),
+                        new ConditionExpression("statecode",        ConditionOperator.Equal, 0)
+                    }
+                }
+            };
+            userQuery.Orders.Add(new OrderExpression("name", OrderType.Ascending));
+
+            EntityCollection userResult;
+            try   { userResult = await Task.Run(() => client.RetrieveMultiple(userQuery), cancellationToken); }
+            catch { userResult = new EntityCollection(); } // las personales son opcionales
+
+            var personalViews = userResult.Entities
+                .Select(e => new ViewDTO
+                {
+                    Id       = e.GetAttributeValue<Guid>("userqueryid"),
+                    Name     = "\u2605 " + (e.GetAttributeValue<string>("name") ?? "(sin nombre)"),  // ★ prefix
+                    FetchXml = e.GetAttributeValue<string>("fetchxml") ?? string.Empty
+                })
+                .Where(v => v.Id != Guid.Empty && !string.IsNullOrWhiteSpace(v.FetchXml));
+
+            var views = systemViews
+                .Concat(personalViews)
                 .OrderBy(v => v.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
