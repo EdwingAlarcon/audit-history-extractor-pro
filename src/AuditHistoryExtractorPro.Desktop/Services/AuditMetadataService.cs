@@ -7,12 +7,15 @@ public static class AuditMetadataService
 {
     public static List<CheckableItem<AuditOperation>> GetAuditOperations()
     {
+        // IsSelected = false → comportamiento de BYPASS por defecto:
+        // si el usuario no marca ninguna operación, la consulta no filtra
+        // por operación y devuelve todos los registros (equivalente a legacy).
         return Enum.GetValues<AuditOperation>()
             .Select(value => new CheckableItem<AuditOperation>
             {
                 Value = value,
                 Label = value.ToString(),
-                IsSelected = true
+                IsSelected = false
             })
             .ToList();
     }

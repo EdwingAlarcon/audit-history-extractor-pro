@@ -35,7 +35,10 @@ public class QueryBuilderService
             }
         };
 
-        query.Criteria.AddCondition("objecttypecode", ConditionOperator.Equal, filters.EntityName);
+        // objecttypecode: siempre minúsculas para comparación exacta con el
+        // nombre lógico de la entidad almacenado en Dataverse.
+        var entityCode = (filters.EntityName ?? string.Empty).Trim().ToLowerInvariant();
+        query.Criteria.AddCondition("objecttypecode", ConditionOperator.Equal, entityCode);
 
         var (fromDate, toDate) = ResolveDateRange(filters);
         if (fromDate.HasValue)
@@ -48,21 +51,34 @@ public class QueryBuilderService
             query.Criteria.AddCondition("createdon", ConditionOperator.LessEqual, toDate.Value);
         }
 
-        var operations = filters.SelectedOperations?.Where(value => value > 0).Distinct().ToArray() ?? Array.Empty<int>();
-        if (operations.Length == 0 && filters.SelectedOperation.HasValue)
+        // ── Filtro de operación (BYPASS si lista vacía) ───────────────────────
+        // Se usa ConditionExpression directamente para evitar el quirk del SDK:
+        // AddCondition("field", In, params object[]) puede serializar el array
+        // entero como UN SOLO valor cuando el compilador lo trata como objeto.
+        // AddRange sobre Values garantiza que cada int sea un elemento separado.
+        var operations = (filters.SelectedOperations ?? Array.Empty<int>())
+            .Where(v => v > 0).Distinct().ToList();
+        if (operations.Count == 0 && filters.SelectedOperation.HasValue)
         {
-            operations = new[] { (int)filters.SelectedOperation.Value };
+            operations = new List<int> { (int)filters.SelectedOperation.Value };
         }
 
-        if (operations.Length > 0)
+        // Bypass: si no hay ninguna operación seleccionada → sin restricción.
+        if (operations.Count > 0)
         {
-            query.Criteria.AddCondition("operation", ConditionOperator.In, operations.Cast<object>().ToArray());
+            var opCond = new ConditionExpression("operation", ConditionOperator.In);
+            opCond.Values.AddRange(operations.Select(v => (object)(int)v));
+            query.Criteria.Conditions.Add(opCond);
         }
 
-        var actions = filters.SelectedActions?.Where(value => value > 0).Distinct().ToArray() ?? Array.Empty<int>();
-        if (actions.Length > 0)
+        // ── Filtro de acción (BYPASS si lista vacía) ──────────────────────────
+        var actions = (filters.SelectedActions ?? Array.Empty<int>())
+            .Where(v => v > 0).Distinct().ToList();
+        if (actions.Count > 0)
         {
-            query.Criteria.AddCondition("action", ConditionOperator.In, actions.Cast<object>().ToArray());
+            var actCond = new ConditionExpression("action", ConditionOperator.In);
+            actCond.Values.AddRange(actions.Select(v => (object)(int)v));
+            query.Criteria.Conditions.Add(actCond);
         }
 
         // Filtro de usuario: TOTALMENTE OPCIONAL.
@@ -124,7 +140,9 @@ public class QueryBuilderService
         sb.Append("    <attribute name='transactionid'/>\n");
         sb.Append("    <attribute name='changedata'/>\n");
         sb.Append("    <filter type='and'>\n");
-        sb.Append($"      <condition attribute='objecttypecode' operator='eq' value='{filters.EntityName}' />\n");
+        // objecttypecode: siempre minúsculas (coherente con BuildAuditQuery).
+        var entityCodeFx = (filters.EntityName ?? string.Empty).Trim().ToLowerInvariant();
+        sb.Append($"      <condition attribute='objecttypecode' operator='eq' value='{entityCodeFx}' />\n");
 
         if (fromDate.HasValue)
         {
@@ -136,32 +154,30 @@ public class QueryBuilderService
             sb.Append($"      <condition attribute='createdon' operator='on-or-before' value='{toDate.Value:yyyy-MM-ddTHH:mm:ssZ}' />\n");
         }
 
-        var operations = filters.SelectedOperations?.Where(value => value > 0).Distinct().ToArray() ?? Array.Empty<int>();
-        if (operations.Length == 0 && filters.SelectedOperation.HasValue)
+        // Bypass si no hay operaciones seleccionadas.
+        var fxOperations = (filters.SelectedOperations ?? Array.Empty<int>())
+            .Where(v => v > 0).Distinct().ToList();
+        if (fxOperations.Count == 0 && filters.SelectedOperation.HasValue)
         {
-            operations = new[] { (int)filters.SelectedOperation.Value };
+            fxOperations = new List<int> { (int)filters.SelectedOperation.Value };
         }
 
-        if (operations.Length > 0)
+        if (fxOperations.Count > 0)
         {
             sb.Append("      <condition attribute='operation' operator='in'>\n");
-            foreach (var operation in operations)
-            {
-                sb.Append($"        <value>{operation}</value>\n");
-            }
-
+            foreach (var op in fxOperations)
+                sb.Append($"        <value>{(int)op}</value>\n");
             sb.Append("      </condition>\n");
         }
 
-        var actions = filters.SelectedActions?.Where(value => value > 0).Distinct().ToArray() ?? Array.Empty<int>();
-        if (actions.Length > 0)
+        // Bypass si no hay acciones seleccionadas.
+        var fxActions = (filters.SelectedActions ?? Array.Empty<int>())
+            .Where(v => v > 0).Distinct().ToList();
+        if (fxActions.Count > 0)
         {
             sb.Append("      <condition attribute='action' operator='in'>\n");
-            foreach (var action in actions)
-            {
-                sb.Append($"        <value>{action}</value>\n");
-            }
-
+            foreach (var act in fxActions)
+                sb.Append($"        <value>{(int)act}</value>\n");
             sb.Append("      </condition>\n");
         }
 
