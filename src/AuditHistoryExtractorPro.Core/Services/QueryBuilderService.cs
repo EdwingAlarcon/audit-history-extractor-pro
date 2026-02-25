@@ -65,7 +65,11 @@ public class QueryBuilderService
             query.Criteria.AddCondition("action", ConditionOperator.In, actions.Cast<object>().ToArray());
         }
 
-        if (filters.SelectedUser is not null)
+        // Filtro de usuario: TOTALMENTE OPCIONAL.
+        // Solo se agrega si el usuario seleccionado tiene un GUID real (no nulo ni Guid.Empty).
+        // SelectedUser == null  →  sin filtro  →  toda la auditoría de la entidad.
+        // SelectedUser.Id == Guid.Empty  →  sentinel "Todos los usuarios"  →  sin filtro.
+        if (filters.SelectedUser is not null && filters.SelectedUser.Id != Guid.Empty)
         {
             query.Criteria.AddCondition("userid", ConditionOperator.Equal, filters.SelectedUser.Id);
         }
@@ -152,7 +156,9 @@ public class QueryBuilderService
             sb.Append("      </condition>\n");
         }
 
-        if (filters.SelectedUser is not null)
+        // Filtro de usuario: TOTALMENTE OPCIONAL.
+        // Solo se agrega si el usuario seleccionado tiene un GUID real (no nulo ni Guid.Empty).
+        if (filters.SelectedUser is not null && filters.SelectedUser.Id != Guid.Empty)
         {
             sb.Append($"      <condition attribute='userid' operator='eq' value='{filters.SelectedUser.Id}' />\n");
         }

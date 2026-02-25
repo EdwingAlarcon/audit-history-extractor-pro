@@ -844,7 +844,35 @@ public class AuditService : IAuditService
             RetrieveAsIfPublished = true
         };
 
-        var response = (RetrieveEntityResponse)await _serviceClient.ExecuteAsync(request, cancellationToken);
+        // ── BLINDAJE: ExecuteAsync puede lanzar FaultException si la entidad tiene
+        // metadatos corruptos en el servidor (ej. ID Guid.Empty, LogicalName con
+        // espacios como "Concepto Factura", soluciones desinstaladas con restos).
+        // En ese caso degradamos silenciosamente a cachés vacíos: la extracción
+        // continúa y las columnas de metadatos mostrarán valores por defecto.
+        // PROHIBIDO: throw / re-lanzar la excepción al método llamador.
+        RetrieveEntityResponse response;
+        try
+        {
+            response = (RetrieveEntityResponse)await _serviceClient.ExecuteAsync(request, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancelación explícita del usuario: se propaga sin silenciar.
+            throw;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[LoadEntityMetadataContextAsync] Metadatos de '{entityName}' no disponibles: " +
+                $"{ex.GetType().Name} – {ex.Message}");
+
+            // Dejar cachés en estado vacío/seguro para esta entidad.
+            _optionSetCache = new Dictionary<string, Dictionary<int, string>>(StringComparer.OrdinalIgnoreCase);
+            _attributeByColumnNumber = new Dictionary<int, string>();
+            _lookupTargetByAttribute = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            return;  // Continuar sin metadatos; los campos mostrarán valores raw.
+        }
+
         _metadataTranslationService.CacheEntityMetadata(entityName, response.EntityMetadata);
 
         var cache = new Dictionary<string, Dictionary<int, string>>(StringComparer.OrdinalIgnoreCase);

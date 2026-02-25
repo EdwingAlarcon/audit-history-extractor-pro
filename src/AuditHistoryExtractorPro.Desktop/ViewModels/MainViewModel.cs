@@ -708,18 +708,30 @@ public partial class MainViewModel : ObservableObject
             var current = SelectedUser;
 
             AvailableUsers.Clear();
+
+            // ── Opción "Todos los usuarios" (valor nulo = sin filtro de usuario) ──────────────────
+            // Se inserta como primer elemento para que sea la selección por defecto.
+            // Cuando SelectedUser es null, QueryBuilderService no agrega ninguna
+            // condición de userid y se descarga la auditoría completa de la entidad.
+            AvailableUsers.Add(new LookupItem { Id = Guid.Empty, Name = "(Todos los usuarios)" });
+
             foreach (var user in users)
             {
                 AvailableUsers.Add(new LookupItem { Id = user.Id, Name = user.Name });
             }
 
-            if (current is not null && AvailableUsers.Any(u => u.Id == current.Id))
+            // Restaurar la selección previa si sigue en la lista.
+            // Si no había ninguna o no se encuentra, dejar null (= sin filtro de usuario).
+            if (current is not null && current.Id != Guid.Empty
+                && AvailableUsers.Any(u => u.Id == current.Id))
             {
                 SelectedUser = AvailableUsers.First(u => u.Id == current.Id);
             }
             else
             {
-                SelectedUser = AvailableUsers.FirstOrDefault();
+                // null = "Todos los usuarios"; el ComboBox quedará en blanco o
+                // mostrará el placeholder según el estilo XAML.
+                SelectedUser = null;
             }
         }
         catch (OperationCanceledException)
