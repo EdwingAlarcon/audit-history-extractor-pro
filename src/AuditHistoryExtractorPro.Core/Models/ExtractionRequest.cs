@@ -23,6 +23,9 @@ public class ExtractionRequest
     public IReadOnlyList<int> SelectedActions { get; init; } = Array.Empty<int>();
     public IReadOnlyList<string> SelectedAttributes { get; init; } = Array.Empty<string>();
     public string SearchValue { get; init; } = string.Empty;
+    /// <summary>Vista del sistema o personal seleccionada. Si tiene FetchXml,
+    /// se ejecuta primero para obtener los IDs de los registros a auditar.</summary>
+    public ViewDTO? SelectedView { get; init; }
 
     public ExtractionCriteria ToCriteria()
     {

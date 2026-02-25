@@ -192,24 +192,28 @@ public class AuditService : IAuditService
         // sin importar el MaxRecords original de la solicitud completa.
         var previewRequest = new ExtractionRequest
         {
-            EntityName        = request.EntityName,
-            RecordId          = request.RecordId,
-            SelectedDateRange = request.SelectedDateRange,
-            SelectedDateFrom  = request.SelectedDateFrom,
-            SelectedDateTo    = request.SelectedDateTo,
-            IsFullDay         = request.IsFullDay,
-            StartDate         = request.StartDate,
-            EndDate           = request.EndDate,
-            SelectedUser      = request.SelectedUser,
+            EntityName         = request.EntityName,
+            RecordId           = request.RecordId,
+            SelectedDateRange  = request.SelectedDateRange,
+            SelectedDateFrom   = request.SelectedDateFrom,
+            SelectedDateTo     = request.SelectedDateTo,
+            IsFullDay          = request.IsFullDay,
+            StartDate          = request.StartDate,
+            EndDate            = request.EndDate,
+            SelectedUser       = request.SelectedUser,
             SelectedOperations = request.SelectedOperations,
-            SelectedActions   = request.SelectedActions,
+            SelectedActions    = request.SelectedActions,
             SelectedAttributes = request.SelectedAttributes,
-            SearchValue       = request.SearchValue,
-            MaxRecords        = maxRows   // ← límite de seguridad anti-OOM
+            SearchValue        = request.SearchValue,
+            MaxRecords         = maxRows,  // ← límite de seguridad anti-OOM
+            SelectedView       = request.SelectedView
         };
 
+        // Paso 1: resolver IDs desde la Vista seleccionada (si aplica)
+        var objectIds = await ResolveViewObjectIdsAsync(previewRequest.SelectedView, cancellationToken);
+
         var rows = new List<AuditExportRow>(maxRows);
-        await foreach (var row in StreamRowsAsync(previewRequest, progress: null, updateCount: _ => { }, cancellationToken))
+        await foreach (var row in StreamRowsAsync(previewRequest, objectIds, progress: null, updateCount: _ => { }, cancellationToken))
         {
             rows.Add(row);
         }
@@ -261,8 +265,27 @@ public class AuditService : IAuditService
 
             progress?.Report("Iniciando extracción de auditoría...");
 
+            // Paso 1: resolver IDs desde la Vista seleccionada (si aplica)
+            var objectIds = await ResolveViewObjectIdsAsync(request.SelectedView, cancellationToken);
+            if (request.SelectedView is not null && objectIds.Count == 0)
+            {
+                // La Vista no devuelve ningún registro → no hay auditoría posible
+                progress?.Report("La Vista seleccionada no devuelve registros. Extracción finalizada.");
+                return AuditHistoryExtractorPro.Core.Models.ExtractionResult.Ok(0, filePath, "La Vista seleccionada no devuelve registros.");
+            }
+
             var totalWritten = 0;
-            var asyncRows = StreamRowsAsync(request, progress, count => totalWritten = count, cancellationToken);
+            // Paso 2 & 3: streaming paginado sobre 'audit', con RetrieveAuditDetailsRequest por fila
+            IAsyncEnumerable<AuditExportRow> asyncRows;
+            if (objectIds.Count == 0)
+            {
+                asyncRows = StreamRowsAsync(request, null, progress, count => totalWritten = count, cancellationToken);
+            }
+            else
+            {
+                asyncRows = StreamAllChunksAsync(request, objectIds, progress, count => totalWritten = count, cancellationToken);
+            }
+
             await _excelExportService.ExportAsync(filePath, asyncRows, cancellationToken);
 
             progress?.Report($"Extracción completada. Total: {totalWritten} registros.");
@@ -284,6 +307,7 @@ public class AuditService : IAuditService
 
     private async IAsyncEnumerable<AuditExportRow> StreamRowsAsync(
         ExtractionRequest request,
+        IReadOnlyList<Guid>? objectIds,
         IProgress<string>? progress,
         Action<int> updateCount,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
@@ -308,7 +332,8 @@ public class AuditService : IAuditService
             SearchValue = request.SearchValue,
             RecordId = request.RecordId,
             StartDate = request.StartDate,
-            EndDate = request.EndDate
+            EndDate = request.EndDate,
+            ObjectIds = objectIds ?? Array.Empty<Guid>()
         };
 
         var selectedAttributes = new HashSet<string>(request.SelectedAttributes, StringComparer.OrdinalIgnoreCase);
@@ -343,157 +368,32 @@ public class AuditService : IAuditService
 
             var startIndex = totalWritten + 1;
 
+            // ── Paso 3: Iterar cada entidad → llamar RetrieveAuditDetailsRequest ─────
+            var stopped = false;
             foreach (var entity in page.Entities)
             {
-                AuditExportRow? row = null;
-                bool rowFaulted = false;
-                try
+                if (stopped || totalWritten >= request.MaxRecords) break;
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // BuildDetailRowsAsync es indestructible: todos los errores SDK se
+                // capturan dentro y producen filas de diagnóstico en lugar de lanzar.
+                await foreach (var detailRow in BuildDetailRowsAsync(entity, selectedAttributes, cancellationToken))
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!MatchesSearchValue(detailRow, searchValue))
+                        continue;
 
-                    // SafeGet aísla cada acceso de atributo del MetadataCache del SDK.
-                    var auditIdRaw   = SafeGet<Guid>(entity, "auditid").ToString();
-                    var createdOnRaw = SafeGet<DateTime>(entity, "createdon");
-                    var createdOnStr = createdOnRaw == default
-                        ? string.Empty
-                        : createdOnRaw.ToUniversalTime().ToString("O");
-
-                    // ── GUARD: objectid con Guid.Empty o LogicalName vacío ────────────────
-                    // El SDK lanza FaultException si intentamos resolver metadatos de un
-                    // registro cuyo GUID es 00000000 (entidades "fantasma" de soluciones
-                    // desinstaladas). En vez de saltar el registro (continue), lo incluimos
-                    // en el export con valores seguros para diagnóstico.
-                    var objectRef = SafeGet<EntityReference>(entity, "objectid");
-                    if (objectRef != null && (objectRef.Id == Guid.Empty || string.IsNullOrWhiteSpace(objectRef.LogicalName)))
-                    {
-                        row = new AuditExportRow
-                        {
-                            AuditId        = auditIdRaw,
-                            CreatedOn      = createdOnStr,
-                            EntityName     = "[Registro No Encontrado o Eliminado]",
-                            RecordId       = "[Guid.Empty]",
-                            LogicalName    = "[Registro No Encontrado o Eliminado]",
-                            RecordUrl      = string.Empty,
-                            ActionCode     = SafeGet<OptionSetValue>(entity, "action")?.Value ?? 0,
-                            ActionName     = "[Referencia Corrupta - Guid.Empty]",
-                            UserId         = string.Empty,
-                            UserName       = "[Registro No Encontrado o Eliminado]",
-                            RealActor      = "[Registro No Encontrado o Eliminado]",
-                            TransactionId  = string.Empty,
-                            ChangedField   = string.Empty,
-                            OldValue       = "[Registro No Encontrado o Eliminado]",
-                            NewValue       = "[Registro No Encontrado o Eliminado]"
-                        };
-                        // No hacemos continue: el registro con valores seguros fluye hasta yield return
-                    }
-                    else
-                    {
-                        // ── GUARD: userid/callinguserid con Guid.Empty ───────────────────
-                        // Si el GUID del usuario es vacío, no llamamos al SDK para resolverlo;
-                        // simplemente lo ignoramos para esa propiedad.
-                        var userRef = SafeGet<EntityReference>(entity, "userid");
-                        if (userRef != null && userRef.Id == Guid.Empty)
-                        {
-                            // Nulificamos la referencia para que BuildExportRowAsync no llame al SDK
-                            entity.Attributes.Remove("userid");
-                        }
-                        var callingUserRef = SafeGet<EntityReference>(entity, "callinguserid");
-                        if (callingUserRef != null && callingUserRef.Id == Guid.Empty)
-                        {
-                            entity.Attributes.Remove("callinguserid");
-                        }
-
-                        var changeData    = SafeGet<string>(entity, "changedata") ?? string.Empty;
-                        var attributeMask = SafeGet<string>(entity, "attributemask") ?? string.Empty;
-                        var change        = ParseChangeData(changeData);
-
-                        if (!ShouldIncludeRecord(attributeMask, change.field, selectedAttributes))
-                        {
-                            continue;
-                        }
-
-                        try
-                        {
-                            row = await BuildExportRowAsync(entity, change, cancellationToken);
-                        }
-                        catch
-                        {
-                            // Si BuildExportRowAsync falla (FaultException u otro), producir
-                            // fila con valores seguros en lugar de abortar la extracción.
-                            row = new AuditExportRow
-                            {
-                                AuditId       = auditIdRaw,
-                                CreatedOn     = createdOnStr,
-                                EntityName    = objectRef?.LogicalName ?? "[Desconocido]",
-                                RecordId      = objectRef?.Id.ToString() ?? string.Empty,
-                                LogicalName   = objectRef?.LogicalName ?? "[Desconocido]",
-                                RecordUrl     = string.Empty,
-                                ActionCode    = 0,
-                                ActionName    = "[Registro No Encontrado o Eliminado]",
-                                UserId        = string.Empty,
-                                UserName      = "[Registro No Encontrado o Eliminado]",
-                                RealActor     = "[Registro No Encontrado o Eliminado]",
-                                TransactionId = string.Empty,
-                                ChangedField  = change.field,
-                                OldValue      = "[Registro No Encontrado o Eliminado]",
-                                NewValue      = "[Registro No Encontrado o Eliminado]"
-                            };
-                        }
-                    }
-                }
-                catch (Exception rowEx)
-                {
-                    // ── RED DE SEGURIDAD EXTERIOR ────────────────────────────────────────
-                    // Cualquier error no previsto queda bloqueado aquí.
-                    // PROHIBIDO re-lanzar (throw) o retornar error al nivel superior.
-                    // Se rellena la fila con valores de diagnóstico y se continúa.
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[StreamRowsAsync] Fila ignorada: {rowEx.GetType().Name} – {rowEx.Message}");
-                    rowFaulted = true;
-                    row = new AuditExportRow
-                    {
-                        AuditId       = string.Empty,
-                        CreatedOn     = string.Empty,
-                        EntityName    = "[Registro Eliminado o Corrupto]",
-                        RecordId      = string.Empty,
-                        LogicalName   = "[Registro Eliminado o Corrupto]",
-                        RecordUrl     = string.Empty,
-                        ActionCode    = 0,
-                        ActionName    = "[Registro Eliminado o Corrupto]",
-                        UserId        = string.Empty,
-                        UserName      = "[Registro Eliminado o Corrupto]",
-                        RealActor     = "[Registro Eliminado o Corrupto]",
-                        TransactionId = string.Empty,
-                        ChangedField  = string.Empty,
-                        OldValue      = "[Registro Eliminado o Corrupto]",
-                        NewValue      = "[Registro Eliminado o Corrupto]"
-                    };
-                }
-
-                // Las filas con error se incluyen SIEMPRE en el resultado, sin pasar
-                // por el filtro de búsqueda, para garantizar trazabilidad de datos corruptos.
-                // Se usa continue para pasar a la siguiente iteración sin detener el proceso.
-                if (rowFaulted && row != null)
-                {
                     totalWritten++;
                     updateCount(totalWritten);
-                    yield return row;
-                    if (totalWritten >= request.MaxRecords) break;
-                    continue;
-                }
-
-                if (row != null && MatchesSearchValue(row, searchValue))
-                {
-                    totalWritten++;
-                    updateCount(totalWritten);
-                    yield return row;
+                    yield return detailRow;
 
                     if (totalWritten >= request.MaxRecords)
                     {
+                        stopped = true;
                         break;
                     }
                 }
             }
+            if (stopped) yield break;
 
             progress?.Report($"Escribiendo registros {startIndex}-{totalWritten}...");
 
@@ -678,107 +578,372 @@ public class AuditService : IAuditService
         }
     }
 
-    private async Task<AuditExportRow> BuildExportRowAsync(
-        Entity entity,
-        (string field, string oldValue, string newValue) parsedChange,
-        CancellationToken cancellationToken)
+    // ─────────────────────────────────────────────────────────────────────────
+    // PASO 3 — Motor central: un registro audit → N filas (una por campo cambiado)
+    // Usa RetrieveAuditDetailsRequest para obtener OldValue/NewValue reales.
+    // Si la llamada falla (registro borrado, FaultException), degrada al XML
+    // de changedata como fallback para no perder ninguna fila.
+    // ─────────────────────────────────────────────────────────────────────────
+    private async IAsyncEnumerable<AuditExportRow> BuildDetailRowsAsync(
+        Entity auditEntity,
+        HashSet<string> selectedAttributes,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        // ── ESCUDO EXTERIOR ──────────────────────────────────────────────────────
-        // Si cualquier lectura de atributo o llamada al SDK falla de forma
-        // inesperada, este catch devuelve una fila parcial con los datos que
-        // se hayan podido recuperar antes del fallo.
-        // PROHIBIDO: throw / re-lanzar la excepción al método llamador.
-        // ────────────────────────────────────────────────────────────────────────
+        // ── Cabecera del registro de auditoría (lectura segura) ──────────────────
+        var auditId        = SafeGet<Guid>(auditEntity, "auditid");
+        var createdOn      = SafeGet<DateTime>(auditEntity, "createdon");
+        var objectRef      = SafeGet<EntityReference>(auditEntity, "objectid");
+        var actionOptSet   = SafeGet<OptionSetValue>(auditEntity, "action");
+        var userRef        = SafeGet<EntityReference>(auditEntity, "userid");
+        var callingUserRef = SafeGet<EntityReference>(auditEntity, "callinguserid");
+        var transactionId  = SafeGet<Guid?>(auditEntity, "transactionid");
 
-        // ── Lectura segura de atributos primitivos (SafeGet aísla MetadataCache) ─
-        var auditId        = SafeGet<Guid>(entity, "auditid");
-        var createdOn      = SafeGet<DateTime>(entity, "createdon");
-        var objectRef      = SafeGet<EntityReference>(entity, "objectid");
-        var actionOptSet   = SafeGet<OptionSetValue>(entity, "action");
-        var userRef        = SafeGet<EntityReference>(entity, "userid");
-        var callingUserRef = SafeGet<EntityReference>(entity, "callinguserid");
-        var transactionId  = SafeGet<Guid?>(entity, "transactionid");
-
-        var objectId    = objectRef?.Id;
-        var logicalName = objectRef?.LogicalName
-                          ?? SafeGet<string>(entity, "objecttypecode")
-                          ?? string.Empty;
-        var actionCode  = actionOptSet?.Value ?? 0;
-        var recordId    = objectId?.ToString("D") ?? string.Empty;
-        var fieldName   = parsedChange.field;
-
-        // ── Resolución async de valores Old/New con aislamiento por campo ────────
-        var oldValue = await SafeResolveNameIfReferenceAsync(
-            parsedChange.oldValue, fieldName, cancellationToken);
-        var newValue = await SafeResolveNameIfReferenceAsync(
-            parsedChange.newValue, fieldName, cancellationToken);
-
-        // ── Resolución segura del nombre de usuario ──────────────────────────────
-        string userName;
-        try
+        // GUARD: objectid corrupto (Guid.Empty) → fila de diagnóstico
+        if (objectRef != null && (objectRef.Id == Guid.Empty || string.IsNullOrWhiteSpace(objectRef.LogicalName)))
         {
-            userName = !string.IsNullOrWhiteSpace(userRef?.Name)
-                ? userRef!.Name
-                : (userRef?.Id is Guid userId && userId != Guid.Empty
-                    ? await SafeResolveEntityPrimaryNameAsync("systemuser", userId, cancellationToken)
-                    : null)
-                ?? string.Empty;
-        }
-        catch (OperationCanceledException) { throw; }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine(
-                $"[BuildExportRowAsync] userName: {ex.GetType().Name} – {ex.Message}");
-            userName = "[Datos Corruptos en Dataverse]";
-        }
-
-        // ── Resolución segura del actor real (callinguser) ───────────────────────
-        var realActor = userName;
-        try
-        {
-            if (callingUserRef?.Id is Guid callingUserId
-                && userRef?.Id is Guid userIdToCompare
-                && callingUserId != Guid.Empty
-                && callingUserId != userIdToCompare)
+            yield return new AuditExportRow
             {
-                var callingUserName = !string.IsNullOrWhiteSpace(callingUserRef.Name)
-                    ? callingUserRef.Name
-                    : await SafeResolveEntityPrimaryNameAsync("systemuser", callingUserId, cancellationToken)
-                        ?? callingUserId.ToString("D");
+                AuditId       = auditId.ToString(),
+                CreatedOn     = createdOn == default ? string.Empty : createdOn.ToUniversalTime().ToString("O"),
+                EntityName    = "[Registro No Encontrado o Eliminado]",
+                RecordId      = "[Guid.Empty]",
+                LogicalName   = "[Registro No Encontrado o Eliminado]",
+                RecordUrl     = string.Empty,
+                ActionCode    = actionOptSet?.Value ?? 0,
+                ActionName    = "[Referencia Corrupta - Guid.Empty]",
+                UserId        = string.Empty,
+                UserName      = "[Registro No Encontrado o Eliminado]",
+                RealActor     = "[Registro No Encontrado o Eliminado]",
+                TransactionId = string.Empty,
+                ChangedField  = string.Empty,
+                OldValue      = "[Registro No Encontrado o Eliminado]",
+                NewValue      = "[Registro No Encontrado o Eliminado]"
+            };
+            yield break;
+        }
 
-                realActor = string.IsNullOrWhiteSpace(userName)
-                    ? $"(via {callingUserName})"
-                    : $"{userName} (via {callingUserName})";
+        // GUARD: userid/callinguserid vacíos → no llamar al SDK con Guid.Empty
+        if (userRef is not null && userRef.Id == Guid.Empty)
+            auditEntity.Attributes.Remove("userid");
+        if (callingUserRef is not null && callingUserRef.Id == Guid.Empty)
+            auditEntity.Attributes.Remove("callinguserid");
+        // Re-leer tras limpieza
+        userRef        = SafeGet<EntityReference>(auditEntity, "userid");
+        callingUserRef = SafeGet<EntityReference>(auditEntity, "callinguserid");
+
+        var logicalName  = objectRef?.LogicalName ?? SafeGet<string>(auditEntity, "objecttypecode") ?? string.Empty;
+        var recordId     = objectRef?.Id.ToString("D") ?? string.Empty;
+        var actionCode   = actionOptSet?.Value ?? 0;
+        var auditIdStr   = auditId != Guid.Empty ? auditId.ToString() : string.Empty;
+        var createdOnStr = createdOn == default ? string.Empty : createdOn.ToUniversalTime().ToString("O");
+        var txIdStr      = transactionId?.ToString() ?? string.Empty;
+        var userIdStr    = userRef?.Id.ToString() ?? string.Empty;
+        var recordUrl    = BuildRecordUrl(logicalName, recordId);
+
+        // Resolución de usuario
+        var userName = await ResolveUserAsync(userRef, cancellationToken);
+        var realActor = await ResolveRealActorAsync(userRef, callingUserRef, userName, cancellationToken);
+
+        // ── RetrieveAuditDetailsRequest: obtener OldValue/NewValue reales ────────
+        AttributeAuditDetail? detail = null;
+        try
+        {
+            if (auditId != Guid.Empty && _serviceClient is not null)
+            {
+                var detailReq  = new RetrieveAuditDetailsRequest { AuditId = auditId };
+                var detailResp = (RetrieveAuditDetailsResponse)await Task.Run(
+                    () => _serviceClient.Execute(detailReq), cancellationToken);
+                detail = detailResp.AuditDetail as AttributeAuditDetail;
             }
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine(
-                $"[BuildExportRowAsync] realActor: {ex.GetType().Name} – {ex.Message}");
-            realActor = string.IsNullOrWhiteSpace(userName)
-                ? "[Datos Corruptos en Dataverse]"
-                : userName;
+                $"[BuildDetailRowsAsync] RetrieveAuditDetailsRequest falló auditid={auditId}: " +
+                $"{ex.GetType().Name} – {ex.Message}. Usando fallback changedata.");
         }
 
-        return new AuditExportRow
+        if (detail is not null)
         {
-            AuditId       = auditId.ToString(),
-            CreatedOn     = createdOn == default ? string.Empty : createdOn.ToUniversalTime().ToString("O"),
-            EntityName    = logicalName,
-            RecordId      = recordId,
-            LogicalName   = logicalName,
-            RecordUrl     = BuildRecordUrl(logicalName, recordId),
-            ActionCode    = actionCode,
-            ActionName    = GetOperationName(actionCode),
-            UserId        = userRef?.Id.ToString() ?? string.Empty,
-            UserName      = userName,
-            RealActor     = realActor,
-            TransactionId = transactionId?.ToString() ?? string.Empty,
-            ChangedField  = fieldName,
-            OldValue      = oldValue,
-            NewValue      = newValue
-        };
+            // ── Recopilar todos los atributos cambiados ──────────────────────────
+            var changedAttrs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (detail.OldValue?.Attributes is { Count: > 0 } oldA)
+                foreach (var k in oldA.Keys) changedAttrs.Add(k);
+            if (detail.NewValue?.Attributes is { Count: > 0 } newA)
+                foreach (var k in newA.Keys) changedAttrs.Add(k);
+
+            // Aplicar filtro de atributos seleccionados por el usuario
+            if (selectedAttributes.Count > 0)
+                changedAttrs.IntersectWith(selectedAttributes);
+
+            if (changedAttrs.Count == 0)
+            {
+                // Evento de auditoría sin campos detallados (ej. Create sin tracking)
+                yield return new AuditExportRow
+                {
+                    AuditId = auditIdStr, CreatedOn = createdOnStr, EntityName = logicalName,
+                    RecordId = recordId, LogicalName = logicalName, RecordUrl = recordUrl,
+                    ActionCode = actionCode, ActionName = GetOperationName(actionCode),
+                    UserId = userIdStr, UserName = userName, RealActor = realActor,
+                    TransactionId = txIdStr, ChangedField = string.Empty,
+                    OldValue = string.Empty, NewValue = string.Empty
+                };
+                yield break;
+            }
+
+            // Una fila por cada atributo cambiado
+            foreach (var attrName in changedAttrs)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var oldVal = TranslateAuditAttributeValue(attrName,
+                    detail.OldValue?.Contains(attrName) == true
+                        ? detail.OldValue.GetAttributeValue<object>(attrName) : null);
+                var newVal = TranslateAuditAttributeValue(attrName,
+                    detail.NewValue?.Contains(attrName) == true
+                        ? detail.NewValue.GetAttributeValue<object>(attrName) : null);
+
+                yield return new AuditExportRow
+                {
+                    AuditId = auditIdStr, CreatedOn = createdOnStr, EntityName = logicalName,
+                    RecordId = recordId, LogicalName = logicalName, RecordUrl = recordUrl,
+                    ActionCode = actionCode, ActionName = GetOperationName(actionCode),
+                    UserId = userIdStr, UserName = userName, RealActor = realActor,
+                    TransactionId = txIdStr, ChangedField = attrName,
+                    OldValue = oldVal, NewValue = newVal
+                };
+            }
+        }
+        else
+        {
+            // ── Fallback: parsear el XML de changedata ───────────────────────────
+            var changeData = SafeGet<string>(auditEntity, "changedata") ?? string.Empty;
+            var parsed     = ParseChangeData(changeData);
+
+            if (selectedAttributes.Count > 0
+                && !string.IsNullOrEmpty(parsed.field)
+                && !selectedAttributes.Contains(parsed.field))
+            {
+                yield break; // filtrado por atributos seleccionados
+            }
+
+            var oldVal = string.IsNullOrEmpty(parsed.oldValue) ? string.Empty
+                : await SafeResolveNameIfReferenceAsync(parsed.oldValue, parsed.field, cancellationToken);
+            var newVal = string.IsNullOrEmpty(parsed.newValue) ? string.Empty
+                : await SafeResolveNameIfReferenceAsync(parsed.newValue, parsed.field, cancellationToken);
+
+            yield return new AuditExportRow
+            {
+                AuditId = auditIdStr, CreatedOn = createdOnStr, EntityName = logicalName,
+                RecordId = recordId, LogicalName = logicalName, RecordUrl = recordUrl,
+                ActionCode = actionCode, ActionName = GetOperationName(actionCode),
+                UserId = userIdStr, UserName = userName, RealActor = realActor,
+                TransactionId = txIdStr, ChangedField = parsed.field,
+                OldValue = oldVal, NewValue = newVal
+            };
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Traducción de valores de atributo obtenidos de AttributeAuditDetail
+    // ─────────────────────────────────────────────────────────────────────────
+    private string TranslateAuditAttributeValue(string attributeName, object? value)
+    {
+        try
+        {
+            return value switch
+            {
+                null                      => string.Empty,
+                string s                  => s,
+                bool b                    => b ? "Sí" : "No",
+                OptionSetValue osv        => _optionSetCache.TryGetValue(attributeName, out var labels)
+                                               && labels.TryGetValue(osv.Value, out var lbl)
+                                               ? lbl : osv.Value.ToString(),
+                OptionSetValueCollection mc => string.Join("; ", mc.Select(o =>
+                                               _optionSetCache.TryGetValue(attributeName, out var labels)
+                                               && labels.TryGetValue(o.Value, out var lbl) ? lbl : o.Value.ToString())),
+                EntityReference er        => !string.IsNullOrWhiteSpace(er.Name) ? er.Name : er.Id.ToString("D"),
+                EntityCollection ec       => string.Join("; ", ec.Entities.Select(e => e.Id.ToString("D"))),
+                DateTime dt               => dt.ToUniversalTime().ToString("O"),
+                Money m                   => m.Value.ToString("F2", CultureInfo.InvariantCulture),
+                decimal d                 => d.ToString("F4", CultureInfo.InvariantCulture),
+                double d                  => d.ToString("F4", CultureInfo.InvariantCulture),
+                _                         => value.ToString() ?? string.Empty
+            };
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[TranslateAuditAttributeValue] '{attributeName}': {ex.GetType().Name} – {ex.Message}");
+            return value?.ToString() ?? string.Empty;
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Resolución de nombre de usuario (usuario que realizó la acción)
+    // ─────────────────────────────────────────────────────────────────────────
+    private async Task<string> ResolveUserAsync(EntityReference? userRef, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(userRef?.Name)) return userRef!.Name;
+            if (userRef?.Id is Guid uid && uid != Guid.Empty)
+                return await SafeResolveEntityPrimaryNameAsync("systemuser", uid, cancellationToken) ?? string.Empty;
+            return string.Empty;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch { return "[Datos Corruptos en Dataverse]"; }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Resolución del actor real (puede ser distinto si se usa impersonación)
+    // ─────────────────────────────────────────────────────────────────────────
+    private async Task<string> ResolveRealActorAsync(
+        EntityReference? userRef,
+        EntityReference? callingUserRef,
+        string userName,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (callingUserRef?.Id is Guid callingId
+                && callingId != Guid.Empty
+                && callingId != (userRef?.Id ?? Guid.Empty))
+            {
+                var callerName = !string.IsNullOrWhiteSpace(callingUserRef.Name)
+                    ? callingUserRef.Name
+                    : await SafeResolveEntityPrimaryNameAsync("systemuser", callingId, cancellationToken)
+                        ?? callingId.ToString("D");
+                return string.IsNullOrWhiteSpace(userName)
+                    ? $"(via {callerName})"
+                    : $"{userName} (via {callerName})";
+            }
+            return userName;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch { return string.IsNullOrWhiteSpace(userName) ? "[Datos Corruptos en Dataverse]" : userName; }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PASO 1 — Resolución de Vista: ejecuta el FetchXML de la Vista y devuelve
+    // la lista de IDs de los registros que coinciden con sus filtros.
+    // Vacío si no hay Vista seleccionada o si el FetchXML está en blanco.
+    // ─────────────────────────────────────────────────────────────────────────
+    private async Task<IReadOnlyList<Guid>> ResolveViewObjectIdsAsync(
+        ViewDTO? view,
+        CancellationToken cancellationToken)
+    {
+        if (view is null || string.IsNullOrWhiteSpace(view.FetchXml) || _serviceClient is null)
+            return Array.Empty<Guid>();
+
+        var ids       = new List<Guid>();
+        var page      = 1;
+        string? cookie = null;
+        bool   more   = true;
+
+        while (more)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var paged = InjectPagingIntoFetchXml(view.FetchXml, page, cookie);
+            try
+            {
+                var ec = await ExecuteWithRetryAsync(
+                    () => Task.Run(() =>
+                    {
+                        var req = new RetrieveMultipleRequest { Query = new FetchExpression(paged) };
+                        return ((RetrieveMultipleResponse)_serviceClient.Execute(req)).EntityCollection;
+                    }, cancellationToken),
+                    cancellationToken);
+
+                foreach (var e in ec.Entities)
+                    if (e.Id != Guid.Empty) ids.Add(e.Id);
+
+                more   = ec.MoreRecords;
+                cookie = ec.PagingCookie;
+                page++;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[ResolveViewObjectIdsAsync] Error pág {page}: {ex.GetType().Name} – {ex.Message}");
+                break; // Retornar los IDs recuperados hasta el momento
+            }
+        }
+
+        return ids;
+    }
+
+    private static string InjectPagingIntoFetchXml(string fetchXml, int page, string? pagingCookie)
+    {
+        try
+        {
+            var doc   = XDocument.Parse(fetchXml);
+            var fetch = doc.Root!;
+            fetch.SetAttributeValue("page",  page.ToString());
+            fetch.SetAttributeValue("count", "5000");
+            if (!string.IsNullOrEmpty(pagingCookie))
+                fetch.SetAttributeValue("paging-cookie", pagingCookie);
+            return doc.ToString(SaveOptions.DisableFormatting);
+        }
+        catch { return fetchXml; }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PASO 2 — Chunked streaming: divide la lista de IDs en lotes de 500 para
+    // no exceder el límite de condición IN en Dataverse, y encadena los streams.
+    // ─────────────────────────────────────────────────────────────────────────
+    private async IAsyncEnumerable<AuditExportRow> StreamAllChunksAsync(
+        ExtractionRequest request,
+        IReadOnlyList<Guid> objectIds,
+        IProgress<string>? progress,
+        Action<int> updateCount,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        const int ChunkSize = 500;
+        var chunks      = ChunkList(objectIds, ChunkSize);
+        var totalChunks = chunks.Count;
+        var totalSoFar  = 0;
+
+        for (var ci = 0; ci < totalChunks && totalSoFar < request.MaxRecords; ci++)
+        {
+            progress?.Report($"Procesando lote {ci + 1}/{totalChunks} ({chunks[ci].Count} registros de la Vista)...");
+
+            var remaining    = request.MaxRecords - totalSoFar;
+            var chunkRequest = new ExtractionRequest
+            {
+                EntityName         = request.EntityName,
+                MaxRecords         = remaining,
+                SelectedDateRange  = request.SelectedDateRange,
+                SelectedDateFrom   = request.SelectedDateFrom,
+                SelectedDateTo     = request.SelectedDateTo,
+                IsFullDay          = request.IsFullDay,
+                SelectedUser       = request.SelectedUser,
+                SelectedOperations = request.SelectedOperations,
+                SelectedActions    = request.SelectedActions,
+                SelectedAttributes = request.SelectedAttributes,
+                SearchValue        = request.SearchValue,
+                StartDate          = request.StartDate,
+                EndDate            = request.EndDate
+            };
+
+            var chunkWritten = 0;
+            await foreach (var row in StreamRowsAsync(chunkRequest, chunks[ci], progress,
+                count => { chunkWritten = count; updateCount(totalSoFar + count); },
+                cancellationToken))
+            {
+                yield return row;
+            }
+            totalSoFar += chunkWritten;
+        }
+    }
+
+    private static List<IReadOnlyList<Guid>> ChunkList(IReadOnlyList<Guid> source, int chunkSize)
+    {
+        var result = new List<IReadOnlyList<Guid>>();
+        for (var i = 0; i < source.Count; i += chunkSize)
+            result.Add(source.Skip(i).Take(chunkSize).ToList());
+        return result;
     }
 
     private string BuildRecordUrl(string logicalName, string recordId)

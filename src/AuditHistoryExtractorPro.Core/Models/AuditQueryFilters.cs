@@ -16,4 +16,7 @@ public class AuditQueryFilters
     public string RecordId { get; init; } = string.Empty;
     public DateTime? StartDate { get; init; }
     public DateTime? EndDate { get; init; }
+    /// <summary>IDs de registros de la entidad destino resueltos desde una Vista (objectid IN).  
+    /// Vacío = sin restricción por IDs.</summary>
+    public IReadOnlyList<Guid> ObjectIds { get; init; } = Array.Empty<Guid>();
 }

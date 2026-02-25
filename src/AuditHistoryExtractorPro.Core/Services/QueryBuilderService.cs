@@ -79,6 +79,15 @@ public class QueryBuilderService
             query.Criteria.AddCondition("objectid", ConditionOperator.Equal, recordId);
         }
 
+        // objectid IN — filtro por IDs resueltos desde una Vista (chunk de max 500)
+        if (filters.ObjectIds.Count > 0)
+        {
+            query.Criteria.AddCondition(
+                "objectid",
+                ConditionOperator.In,
+                filters.ObjectIds.Select(id => (object)id).ToArray());
+        }
+
         query.Orders.Add(new OrderExpression("createdon", OrderType.Ascending));
         return query;
     }

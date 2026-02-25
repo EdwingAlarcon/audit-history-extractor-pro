@@ -267,7 +267,8 @@ public partial class MainViewModel : ObservableObject
                 SelectedAttributes = GetSelectedAttributes(),
                 SearchValue = SearchValue,
                 StartDate = BuildStartDateTime(),
-                EndDate = BuildEndDateTime()
+                EndDate = BuildEndDateTime(),
+                SelectedView = SelectedView
             };
 
             var progress = new Progress<string>(message =>
@@ -350,7 +351,8 @@ public partial class MainViewModel : ObservableObject
                 SelectedAttributes = GetSelectedAttributes(),
                 SearchValue        = SearchValue,
                 StartDate          = BuildStartDateTime(),
-                EndDate            = BuildEndDateTime()
+                EndDate            = BuildEndDateTime(),
+                SelectedView       = SelectedView
             };
 
             var rows = await _auditService.GetPreviewRowsAsync(request, PreviewLimit);
