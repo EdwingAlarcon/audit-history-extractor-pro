@@ -305,8 +305,14 @@ public partial class MainViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Error durante extracción: {ex.Message}";
             ProgressValue = 0;
+            StatusMessage = $"Error durante extracción: {ex.Message}";
+            var logPath = WriteEmergencyLog("Exportación", ex);
+            MessageBox.Show(
+                $"Se produjo un error durante la exportación.\nSe ha generado un log de diagnóstico en:\n{logPath}",
+                "Error de Extracción",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
         }
         finally
         {
@@ -364,10 +370,63 @@ public partial class MainViewModel : ObservableObject
         {
             ProgressValue = 0;
             StatusMessage = $"Error en vista previa: {ex.Message}";
+            var logPath = WriteEmergencyLog("Vista Previa", ex);
+            MessageBox.Show(
+                $"Se produjo un error durante la vista previa.\nSe ha generado un log de diagnóstico en:\n{logPath}",
+                "Error de Vista Previa",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
         }
         finally
         {
             IsBusy = false;
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // HELPER: Log de emergencia físico en el Escritorio del usuario
+    // ─────────────────────────────────────────────────────────────────────────
+    private static string WriteEmergencyLog(string operacion, Exception ex)
+    {
+        try
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("========================================================");
+            sb.AppendLine($"AuditHistoryExtractorPro — Error de {operacion}");
+            sb.AppendLine($"Fecha y Hora : {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            sb.AppendLine("========================================================");
+            sb.AppendLine();
+            sb.AppendLine($"[Tipo de Excepción]  {ex.GetType().FullName}");
+            sb.AppendLine($"[Mensaje]            {ex.Message}");
+            sb.AppendLine();
+            sb.AppendLine("[StackTrace]");
+            sb.AppendLine(ex.StackTrace);
+
+            var inner = ex.InnerException;
+            var depth = 1;
+            while (inner != null)
+            {
+                sb.AppendLine();
+                sb.AppendLine($"[InnerException #{depth}]");
+                sb.AppendLine($"  Tipo    : {inner.GetType().FullName}");
+                sb.AppendLine($"  Mensaje : {inner.Message}");
+                sb.AppendLine("  StackTrace:");
+                sb.AppendLine(inner.StackTrace);
+                inner = inner.InnerException;
+                depth++;
+            }
+
+            var logPath = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                "AuditApp_ExtractionError.txt");
+
+            System.IO.File.WriteAllText(logPath, sb.ToString(), System.Text.Encoding.UTF8);
+            return logPath;
+        }
+        catch
+        {
+            // Si falla el propio logger, no interrumpir el flujo de la aplicación.
+            return "(no se pudo escribir el log)";
         }
     }
 
