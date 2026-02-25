@@ -496,6 +496,79 @@ public class AuditService : IAuditService
     /// modo de rescate: itera registro a registro (pageSize=1) para recuperar
     /// los registros sanos e ignorar los corruptos sin abortar la extracción.
     /// </summary>
+    // ─────────────────────────────────────────────────────────────────────────
+    // CAPA DE SEGURIDAD: BuildBaseAuditQuery
+    // ─────────────────────────────────────────────────────────────────────────
+    // Este método es la ÚNICA entrada para construir consultas a la tabla audit
+    // en AuditService. Su responsabilidad es doble:
+    //
+    //  1. Delegar en QueryBuilderService.BuildQueryExpression el grueso de los
+    //     filtros (objecttypecode, operaciones, acciones, usuario, objectid IN,
+    //     paginación y orden).
+    //
+    //  2. Aplicar como SEGUNDA CAPA BLINDADA las condiciones de fecha (createdon)
+    //     cuando el usuario eligió un rango personalizado (DateRangeFilter.Personalizado
+    //     + StartDate/EndDate explícitos). Esto garantiza que NINGÚN lote de IDs
+    //     (chunk de 500) viaje a Dataverse sin su candado temporal, incluso si
+    //     ResolveDateRange falla silenciosamente en el futuro.
+    //
+    // Para presets (Hoy/Semana/Mes) y Todo, QueryBuilderService ya gestiona las
+    // fechas sin leer StartDate/EndDate, por lo que esta capa no interfiere.
+    private QueryExpression BuildBaseAuditQuery(
+        AuditQueryFilters filters,
+        int pageNumber,
+        string? pagingCookie,
+        int pageSize)
+    {
+        // ── PASO 1: obtener la consulta base con todos los filtros estándar ──────
+        var query = _queryBuilderService.BuildQueryExpression(
+            filters, pageNumber, pagingCookie, pageSize);
+
+        // ── PASO 2: blindaje explícito de fechas (solo DateRangeFilter.Personalizado) ──
+        // Si el usuario especificó un rango de fechas con los date-pickers,
+        // StartDate y EndDate llegan aquí con Kind=Unspecified (DateTime.Date).
+        // ToUniversalTime() sobre Kind=Unspecified los trata como hora Local,
+        // lo que es correcto ya que el usuario opera en su zona horaria.
+        if (filters.SelectedDateRange == DateRangeFilter.Personalizado)
+        {
+            // Filtro de Fecha Inicial (≥ inicio del intervalo en UTC) ──────────
+            if (filters.StartDate.HasValue && filters.StartDate.Value != DateTime.MinValue)
+            {
+                query.Criteria.AddCondition(
+                    "createdon",
+                    ConditionOperator.GreaterEqual,
+                    filters.StartDate.Value.ToUniversalTime());
+
+                _logger.LogDebug(
+                    "[BuildBaseAuditQuery] createdon >= {StartUtc:o} (StartDate blindado)",
+                    filters.StartDate.Value.ToUniversalTime());
+            }
+
+            // Filtro de Fecha Final (≤ fin del intervalo en UTC) ──────────────
+            if (filters.EndDate.HasValue && filters.EndDate.Value != DateTime.MinValue)
+            {
+                // IsFullDay=true  → último instante del día: 23:59:59.9999999
+                // IsFullDay=false → el usuario especificó una hora explícita;
+                //                   añadimos :59 segundos para cubrir el minuto
+                //                   completo (paridad con ResolveDateRange).
+                var endBoundary = filters.IsFullDay
+                    ? filters.EndDate.Value.Date.AddDays(1).AddTicks(-1)
+                    : filters.EndDate.Value.AddSeconds(59);
+
+                query.Criteria.AddCondition(
+                    "createdon",
+                    ConditionOperator.LessEqual,
+                    endBoundary.ToUniversalTime());
+
+                _logger.LogDebug(
+                    "[BuildBaseAuditQuery] createdon <= {EndUtc:o} (EndDate blindado, IsFullDay={IsFullDay})",
+                    endBoundary.ToUniversalTime(), filters.IsFullDay);
+            }
+        }
+
+        return query;
+    }
+
     private async Task<PageResult> FetchPageWithFallbackAsync(
         AuditQueryFilters filters,
         int pageNumber,
@@ -509,8 +582,8 @@ public class AuditService : IAuditService
         // en algunas versiones del SDK, Execute omite las validaciones agresivas
         // del MetadataCache del cliente que causan FaultException en entidades
         // con LogicalNames corruptos (ej. "Concepto Factura" con espacios).
-        var query = _queryBuilderService.BuildQueryExpression(
-            filters, pageNumber, pagingCookie, pageSize);
+        // BuildBaseAuditQuery = QueryBuilderService + segunda capa de fechas.
+        var query = BuildBaseAuditQuery(filters, pageNumber, pagingCookie, pageSize);
 
         // ── TELEMETRÍA: imprimir la consulta como FetchXML antes de enviarla ──────
         try
@@ -567,8 +640,9 @@ public class AuditService : IAuditService
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var subQuery = _queryBuilderService.BuildQueryExpression(
-                    filters, subPage, subCookie, 1);
+                // BuildBaseAuditQuery garantiza fechas blindadas también en el
+                // fallback paging 1x1 (cada sub-consulta recupera 1 registro).
+                var subQuery = BuildBaseAuditQuery(filters, subPage, subCookie, 1);
                 try
                 {
                     var subEc = await Task.Run(() =>
