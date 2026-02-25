@@ -7,5 +7,6 @@ public interface IExcelExportService
     Task ExportAsync(
         string outputFilePath,
         IAsyncEnumerable<AuditExportRow> rows,
+        AuditComparisonResult? comparisonResult = null,
         CancellationToken cancellationToken = default);
 }

@@ -17,6 +17,7 @@ public class ExcelExportService : IExcelExportService
     public async Task ExportAsync(
         string outputFilePath,
         IAsyncEnumerable<AuditExportRow> rows,
+        AuditComparisonResult? comparisonResult = null,
         CancellationToken cancellationToken = default)
     {
         var directory = Path.GetDirectoryName(outputFilePath);
@@ -58,7 +59,101 @@ public class ExcelExportService : IExcelExportService
             Name = "Audit"
         });
 
+        if (comparisonResult is not null)
+        {
+            var validationWorksheetPart = workbookPart.AddNewPart<WorksheetPart>();
+            using var validationWriter = OpenXmlWriter.Create(validationWorksheetPart);
+            WriteValidationSheet(validationWriter, comparisonResult);
+
+            sheets.Append(new Sheet
+            {
+                Id = workbookPart.GetIdOfPart(validationWorksheetPart),
+                SheetId = 2,
+                Name = "Validación"
+            });
+        }
+
         workbookPart.Workbook.Save();
+    }
+
+    private static void WriteValidationSheet(OpenXmlWriter writer, AuditComparisonResult comparison)
+    {
+        writer.WriteStartElement(new Worksheet());
+        writer.WriteStartElement(new SheetData());
+
+        WriteKeyValueRow(writer, "LegacyTotal", comparison.LegacyTotal.ToString());
+        WriteKeyValueRow(writer, "CurrentTotal", comparison.CurrentTotal.ToString());
+        WriteKeyValueRow(writer, "MissingInNewCount", comparison.MissingInNewCount.ToString());
+        WriteKeyValueRow(writer, "ValueDifferenceCount", comparison.ValueDifferenceCount.ToString());
+        WriteKeyValueRow(writer, "EntityCountDifferences", comparison.EntityCountDifferences.Count.ToString());
+        writer.WriteStartElement(new Row());
+        writer.WriteEndElement();
+
+        writer.WriteStartElement(new Row());
+        WriteCell(writer, "Discrepancies", 3);
+        writer.WriteEndElement();
+
+        writer.WriteStartElement(new Row());
+        WriteCell(writer, "Type", 3);
+        WriteCell(writer, "EntityName", 3);
+        WriteCell(writer, "AuditId", 3);
+        WriteCell(writer, "ObjectId", 3);
+        WriteCell(writer, "AttributeName", 3);
+        WriteCell(writer, "LegacyOldValue", 3);
+        WriteCell(writer, "LegacyNewValue", 3);
+        WriteCell(writer, "CurrentOldValue", 3);
+        WriteCell(writer, "CurrentNewValue", 3);
+        writer.WriteEndElement();
+
+        foreach (var discrepancy in comparison.Discrepancies)
+        {
+            writer.WriteStartElement(new Row());
+            WriteCell(writer, discrepancy.Type, 0);
+            WriteCell(writer, discrepancy.EntityName, 0);
+            WriteCell(writer, discrepancy.AuditId, 0);
+            WriteCell(writer, discrepancy.ObjectId, 0);
+            WriteCell(writer, discrepancy.AttributeName, 0);
+            WriteCell(writer, discrepancy.LegacyOldValue, 0);
+            WriteCell(writer, discrepancy.LegacyNewValue, 0);
+            WriteCell(writer, discrepancy.CurrentOldValue, 0);
+            WriteCell(writer, discrepancy.CurrentNewValue, 0);
+            writer.WriteEndElement();
+        }
+
+        writer.WriteStartElement(new Row());
+        writer.WriteEndElement();
+
+        writer.WriteStartElement(new Row());
+        WriteCell(writer, "EntityCountDifferences", 3);
+        writer.WriteEndElement();
+
+        writer.WriteStartElement(new Row());
+        WriteCell(writer, "EntityName", 3);
+        WriteCell(writer, "LegacyCount", 3);
+        WriteCell(writer, "CurrentCount", 3);
+        WriteCell(writer, "Difference", 3);
+        writer.WriteEndElement();
+
+        foreach (var entityDiff in comparison.EntityCountDifferences)
+        {
+            writer.WriteStartElement(new Row());
+            WriteCell(writer, entityDiff.EntityName, 0);
+            WriteCell(writer, entityDiff.LegacyCount.ToString(), 0);
+            WriteCell(writer, entityDiff.CurrentCount.ToString(), 0);
+            WriteCell(writer, entityDiff.Difference.ToString(), 0);
+            writer.WriteEndElement();
+        }
+
+        writer.WriteEndElement();
+        writer.WriteEndElement();
+    }
+
+    private static void WriteKeyValueRow(OpenXmlWriter writer, string key, string value)
+    {
+        writer.WriteStartElement(new Row());
+        WriteCell(writer, key, 3);
+        WriteCell(writer, value, 0);
+        writer.WriteEndElement();
     }
 
     private static void WriteHeader(OpenXmlWriter writer)

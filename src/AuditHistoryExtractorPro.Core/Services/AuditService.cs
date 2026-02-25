@@ -25,6 +25,7 @@ public class AuditService : IAuditService
     private readonly QueryBuilderService _queryBuilderService;
     private readonly IAuditProcessingService _auditProcessingService;
     private readonly IExcelExportService _excelExportService;
+    private readonly IAuditComparisonService _auditComparisonService;
     private readonly IMetadataTranslationService _metadataTranslationService;
     private readonly Microsoft.Extensions.Logging.ILogger<AuditService> _logger;
     private const int MaxThrottlingRetries = 3;
@@ -55,6 +56,7 @@ public class AuditService : IAuditService
         QueryBuilderService queryBuilderService,
         IAuditProcessingService auditProcessingService,
         IExcelExportService excelExportService,
+        IAuditComparisonService auditComparisonService,
         IMetadataTranslationService metadataTranslationService,
         Microsoft.Extensions.Logging.ILogger<AuditService> logger)
     {
@@ -62,6 +64,7 @@ public class AuditService : IAuditService
         _queryBuilderService = queryBuilderService;
         _auditProcessingService = auditProcessingService;
         _excelExportService = excelExportService;
+        _auditComparisonService = auditComparisonService;
         _metadataTranslationService = metadataTranslationService;
         _logger = logger;
     }
@@ -323,11 +326,42 @@ public class AuditService : IAuditService
             IAsyncEnumerable<AuditExportRow> asyncRows =
                 StreamRowsAsync(request, viewIdsHash, progress, count => totalWritten = count, cancellationToken);
 
-            await _excelExportService.ExportAsync(filePath, asyncRows, cancellationToken);
+            AuditComparisonResult? comparisonResult = null;
+            if (!string.IsNullOrWhiteSpace(request.LegacyComparisonFilePath))
+            {
+                progress?.Report("Materializando filas para validación contra Excel legacy...");
+                var materializedRows = new List<AuditExportRow>();
+                await foreach (var row in asyncRows.WithCancellation(cancellationToken))
+                {
+                    materializedRows.Add(row);
+                }
+
+                progress?.Report("Ejecutando cotejo QA (legacy vs actual)...");
+                comparisonResult = await _auditComparisonService.CompareWithLegacyAsync(
+                    request.LegacyComparisonFilePath,
+                    materializedRows,
+                    cancellationToken);
+
+                asyncRows = EnumerateRowsAsync(materializedRows, cancellationToken);
+            }
+
+            await _excelExportService.ExportAsync(filePath, asyncRows, comparisonResult, cancellationToken);
 
             progress?.Report($"Extracción completada. Total: {totalWritten} registros.");
             return AuditHistoryExtractorPro.Core.Models.ExtractionResult.Ok(totalWritten, filePath, $"Extracción completada. Archivo generado en: {filePath}");
         }, cancellationToken);
+    }
+
+    private static async IAsyncEnumerable<AuditExportRow> EnumerateRowsAsync(
+        IReadOnlyList<AuditExportRow> rows,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        foreach (var row in rows)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            yield return row;
+            await Task.Yield();
+        }
     }
 
     private static string ResolveOutputPath(string outputFilePath, string entityName)
@@ -362,9 +396,9 @@ public class AuditService : IAuditService
             SelectedDateTo = request.SelectedDateTo,
             IsFullDay = request.IsFullDay,
             SelectedUser = request.SelectedUser,
-            SelectedOperation = request.SelectedOperation,
-            SelectedOperations = request.SelectedOperations,
-            SelectedActions = request.SelectedActions,
+            SelectedOperation = request.CompatibilityMode ? null : request.SelectedOperation,
+            SelectedOperations = request.CompatibilityMode ? Array.Empty<int>() : request.SelectedOperations,
+            SelectedActions = request.CompatibilityMode ? Array.Empty<int>() : request.SelectedActions,
             SelectedAttributes = request.SelectedAttributes,
             SearchValue = request.SearchValue,
             // Estrictamente prohibido enviar filtros por objectid al backend

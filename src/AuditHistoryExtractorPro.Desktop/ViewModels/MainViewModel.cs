@@ -104,6 +104,12 @@ public partial class MainViewModel : ObservableObject
     private string searchValue = string.Empty;
 
     [ObservableProperty]
+    private bool compatibilityMode;
+
+    [ObservableProperty]
+    private string legacyComparisonFilePath = string.Empty;
+
+    [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(CopyGuidCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenRecordCommand))]
     private AuditExportRow? selectedPreviewRecord;
@@ -202,6 +208,34 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanExtract))]
     private async Task ExtractAsync()
     {
+        if (!string.IsNullOrWhiteSpace(LegacyComparisonFilePath))
+        {
+            var legacyPath = LegacyComparisonFilePath.Trim();
+            if (!legacyPath.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+            {
+                StatusMessage = "El archivo legacy debe ser un Excel (.xlsx).";
+                MessageBox.Show(
+                    "Selecciona un archivo Excel válido (.xlsx) para el cotejo legacy.",
+                    "Archivo legacy inválido",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
+            if (!File.Exists(legacyPath))
+            {
+                StatusMessage = "El archivo legacy seleccionado no existe.";
+                MessageBox.Show(
+                    $"No se encontró el archivo legacy:\n{legacyPath}",
+                    "Archivo legacy no encontrado",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
+            LegacyComparisonFilePath = legacyPath;
+        }
+
         // ── Selector de ruta de guardado ───────────────────────────────────────────────────
         // Nombre sugerido: usa el nombre de la Vista si hay una seleccionada,
         // o el nombre lógico de la entidad como fallback.
@@ -245,7 +279,9 @@ public partial class MainViewModel : ObservableObject
                 SearchValue = SearchValue,
                 StartDate = BuildStartDateTime(),
                 EndDate = BuildEndDateTime(),
-                SelectedView = SelectedView
+                SelectedView = SelectedView,
+                CompatibilityMode = CompatibilityMode,
+                LegacyComparisonFilePath = LegacyComparisonFilePath?.Trim() ?? string.Empty
             };
 
             var progress = new Progress<string>(message =>
@@ -330,7 +366,8 @@ public partial class MainViewModel : ObservableObject
                 SearchValue        = SearchValue,
                 StartDate          = BuildStartDateTime(),
                 EndDate            = BuildEndDateTime(),
-                SelectedView       = SelectedView
+                SelectedView       = SelectedView,
+                CompatibilityMode  = CompatibilityMode
             };
 
             // Ejecutar en hilo de fondo — UI sigue respondiendo.
@@ -621,6 +658,23 @@ public partial class MainViewModel : ObservableObject
         foreach (var item in AttributesList)
         {
             item.IsSelected = false;
+        }
+    }
+
+    [RelayCommand]
+    private void BrowseLegacyComparisonFile()
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Seleccionar archivo Excel legacy para cotejo",
+            Filter = "Excel Files (*.xlsx)|*.xlsx",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+
+        if (dialog.ShowDialog() == true)
+        {
+            LegacyComparisonFilePath = dialog.FileName;
         }
     }
 

@@ -239,6 +239,19 @@
 
                         <Expander Header="Avanzado" IsExpanded="False" Margin="0,0,0,12">
                             <StackPanel Margin="0,8,0,0">
+                                <CheckBox Content="Compatibility Mode (omite filtros de Operación/Acción)" IsChecked="{Binding CompatibilityMode, Mode=TwoWay}" Margin="0,0,0,10" />
+
+                                <TextBlock Text="Archivo Excel legacy para cotejo (opcional)" Style="{StaticResource SectionTitleStyle}" Margin="0,0,0,6" />
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBox Grid.Column="0" Height="32" Margin="0,0,8,0" Text="{Binding LegacyComparisonFilePath, UpdateSourceTrigger=PropertyChanged}" />
+                                    <Button Grid.Column="1" Content="Examinar" Command="{Binding BrowseLegacyComparisonFileCommand}" MinWidth="90" />
+                                </Grid>
+
                                 <TextBlock Text="Búsqueda de valor (Old/New)" Style="{StaticResource SectionTitleStyle}" Margin="0,0,0,6" />
                                 <TextBox Height="32" Margin="0,0,0,6" Text="{Binding SearchValue, UpdateSourceTrigger=PropertyChanged}" />
                                 <TextBlock Text="Nota: este filtro se aplica en cliente y puede hacer la extracción un poco más lenta, pero es más preciso." Foreground="#A4262C" TextWrapping="Wrap" Margin="0,0,0,10" />
