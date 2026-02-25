@@ -1,15 +1,22 @@
 namespace AuditHistoryExtractorPro.Desktop.Models;
 
+public enum EnvironmentType
+{
+    Dev,
+    QA,
+    Prod
+}
+
 public sealed class SavedConnection
 {
-    public string Name { get; set; } = string.Empty;
-    public string ServiceUrl { get; set; } = string.Empty;
-    public string Username { get; set; } = string.Empty;
-    public string EncryptedPassword { get; set; } = string.Empty;
-    public string EnvironmentColor { get; set; } = "#00A4EF";
+    public string ConnectionName { get; set; } = string.Empty;
+    public string Url { get; set; } = string.Empty;
+    public string User { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+    public EnvironmentType EnvironmentType { get; set; } = EnvironmentType.Prod;
     public DateTime LastUsed { get; set; }
 
-    public override string ToString() => string.IsNullOrWhiteSpace(Name)
-        ? ServiceUrl
-        : $"{Name} ({ServiceUrl})";
+    public override string ToString() => string.IsNullOrWhiteSpace(ConnectionName)
+        ? Url
+        : $"{ConnectionName} ({Url})";
 }

@@ -240,8 +240,7 @@ public class QueryBuilderService
 
     private static string FormatUtcIso8601(DateTime utc)
     {
-        var safeUtc = utc.Kind == DateTimeKind.Utc ? utc : utc.ToUniversalTime();
-        return safeUtc.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
+        return utc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
     }
 
     private static (DateTime? fromDate, DateTime? toDate) ResolveDateRange(AuditQueryFilters filters)

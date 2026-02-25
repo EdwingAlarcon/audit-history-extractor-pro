@@ -36,18 +36,12 @@ public sealed class ConnectionProvider
 
         foreach (var connection in persisted)
         {
-            // Desencriptado para uso en UI/conexión. El nombre del campo se mantiene
-            // como EncryptedPassword por contrato de modelo solicitado.
-            connection.EncryptedPassword = Unprotect(connection.EncryptedPassword);
-            if (string.IsNullOrWhiteSpace(connection.EnvironmentColor))
-            {
-                connection.EnvironmentColor = "#00A4EF";
-            }
+            connection.Password = Unprotect(connection.Password);
         }
 
         return persisted
             .OrderByDescending(c => c.LastUsed)
-            .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(c => c.ConnectionName, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 
@@ -55,22 +49,20 @@ public sealed class ConnectionProvider
     {
         var all = (await LoadRawConnections(cancellationToken)).ToList();
 
-        var encryptedPassword = Protect(connection.EncryptedPassword);
+        var encryptedPassword = Protect(connection.Password);
         var normalized = new SavedConnection
         {
-            Name = connection.Name,
-            ServiceUrl = connection.ServiceUrl,
-            Username = connection.Username,
-            EncryptedPassword = encryptedPassword,
-            EnvironmentColor = string.IsNullOrWhiteSpace(connection.EnvironmentColor)
-                ? "#00A4EF"
-                : connection.EnvironmentColor,
+            ConnectionName = connection.ConnectionName,
+            Url = connection.Url,
+            User = connection.User,
+            Password = encryptedPassword,
+            EnvironmentType = connection.EnvironmentType,
             LastUsed = connection.LastUsed
         };
 
         var existing = all.FirstOrDefault(c =>
-            string.Equals(c.Name, normalized.Name, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(c.ServiceUrl, normalized.ServiceUrl, StringComparison.OrdinalIgnoreCase));
+            string.Equals(c.ConnectionName, normalized.ConnectionName, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(c.Url, normalized.Url, StringComparison.OrdinalIgnoreCase));
 
         if (existing is null)
         {
@@ -78,11 +70,11 @@ public sealed class ConnectionProvider
         }
         else
         {
-            existing.Name = normalized.Name;
-            existing.ServiceUrl = normalized.ServiceUrl;
-            existing.Username = normalized.Username;
-            existing.EncryptedPassword = normalized.EncryptedPassword;
-            existing.EnvironmentColor = normalized.EnvironmentColor;
+            existing.ConnectionName = normalized.ConnectionName;
+            existing.Url = normalized.Url;
+            existing.User = normalized.User;
+            existing.Password = normalized.Password;
+            existing.EnvironmentType = normalized.EnvironmentType;
             existing.LastUsed = normalized.LastUsed;
         }
 
@@ -97,7 +89,7 @@ public sealed class ConnectionProvider
         }
 
         var all = (await LoadRawConnections(cancellationToken)).ToList();
-        all.RemoveAll(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
+        all.RemoveAll(c => string.Equals(c.ConnectionName, name, StringComparison.OrdinalIgnoreCase));
         await Persist(all, cancellationToken);
     }
 

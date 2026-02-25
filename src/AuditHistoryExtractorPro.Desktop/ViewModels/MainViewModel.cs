@@ -54,9 +54,6 @@ public partial class MainViewModel : ObservableObject
     private string profileCredential = string.Empty;
 
     [ObservableProperty]
-    private string selectedEnvironmentColor = "#00A4EF";
-
-    [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(DeleteProfileCommand))]
     private SavedConnection? selectedConnectionProfile;
 
@@ -477,13 +474,10 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        ProfileName = value.Name;
-        ProfileUserName = value.Username;
-        ProfileCredential = value.EncryptedPassword;
-        CrmUrl = value.ServiceUrl;
-        SelectedEnvironmentColor = string.IsNullOrWhiteSpace(value.EnvironmentColor)
-            ? "#00A4EF"
-            : value.EnvironmentColor;
+        ProfileName = value.ConnectionName;
+        ProfileUserName = value.User;
+        ProfileCredential = value.Password;
+        CrmUrl = value.Url;
     }
 
     private async Task LoadAuditableEntitiesAsync()
@@ -648,7 +642,7 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        var name = SelectedConnectionProfile.Name;
+        var name = SelectedConnectionProfile.ConnectionName;
         await _connectionProvider.DeleteConnection(name);
         await LoadConnectionProfilesAsync();
 
@@ -657,7 +651,6 @@ public partial class MainViewModel : ObservableObject
             ProfileName = string.Empty;
             ProfileUserName = string.Empty;
             ProfileCredential = string.Empty;
-            SelectedEnvironmentColor = "#00A4EF";
         }
 
         SelectedConnectionProfile = null;
@@ -903,29 +896,27 @@ public partial class MainViewModel : ObservableObject
 
         var profile = new SavedConnection
         {
-            Name = normalizedName,
-            ServiceUrl = CrmUrl.Trim(),
-            Username = ProfileUserName.Trim(),
-            EncryptedPassword = ProfileCredential,
-            EnvironmentColor = ResolveEnvironmentColor(CrmUrl),
+            ConnectionName = normalizedName,
+            Url = CrmUrl.Trim(),
+            User = ProfileUserName.Trim(),
+            Password = ProfileCredential,
+            EnvironmentType = ResolveEnvironmentType(CrmUrl),
             LastUsed = markAsUsed ? DateTime.UtcNow : SelectedConnectionProfile?.LastUsed ?? DateTime.UtcNow
         };
 
         await _connectionProvider.SaveConnection(profile);
-        ProfileName = profile.Name;
+        ProfileName = profile.ConnectionName;
         SelectedConnectionProfile = profile;
-        SelectedEnvironmentColor = profile.EnvironmentColor;
     }
 
-    private static string ResolveEnvironmentColor(string serviceUrl)
+    private static EnvironmentType ResolveEnvironmentType(string serviceUrl)
     {
-        if (string.IsNullOrWhiteSpace(serviceUrl)) return "#00A4EF";
+        if (string.IsNullOrWhiteSpace(serviceUrl)) return EnvironmentType.Prod;
 
         var value = serviceUrl.ToLowerInvariant();
-        if (value.Contains("prod") || value.Contains("crm")) return "#0078D4";
-        if (value.Contains("qa") || value.Contains("test")) return "#F7630C";
-        if (value.Contains("dev") || value.Contains("sandbox")) return "#107C10";
-        return "#00A4EF";
+        if (value.Contains("qa") || value.Contains("test")) return EnvironmentType.QA;
+        if (value.Contains("dev") || value.Contains("sandbox")) return EnvironmentType.Dev;
+        return EnvironmentType.Prod;
     }
 
     private static string BuildProfileNameFromUrl(string url)
