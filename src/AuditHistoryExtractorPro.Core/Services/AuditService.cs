@@ -343,8 +343,9 @@ public class AuditService : IAuditService
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    var auditIdRaw   = entity.GetAttributeValue<Guid>("auditid").ToString();
-                    var createdOnRaw = entity.GetAttributeValue<DateTime>("createdon");
+                    // SafeGet aísla cada acceso de atributo del MetadataCache del SDK.
+                    var auditIdRaw   = SafeGet<Guid>(entity, "auditid").ToString();
+                    var createdOnRaw = SafeGet<DateTime>(entity, "createdon");
                     var createdOnStr = createdOnRaw == default
                         ? string.Empty
                         : createdOnRaw.ToUniversalTime().ToString("O");
@@ -354,7 +355,7 @@ public class AuditService : IAuditService
                     // registro cuyo GUID es 00000000 (entidades "fantasma" de soluciones
                     // desinstaladas). En vez de saltar el registro (continue), lo incluimos
                     // en el export con valores seguros para diagnóstico.
-                    var objectRef = entity.GetAttributeValue<EntityReference>("objectid");
+                    var objectRef = SafeGet<EntityReference>(entity, "objectid");
                     if (objectRef != null && (objectRef.Id == Guid.Empty || string.IsNullOrWhiteSpace(objectRef.LogicalName)))
                     {
                         row = new AuditExportRow
@@ -365,7 +366,7 @@ public class AuditService : IAuditService
                             RecordId       = "[Guid.Empty]",
                             LogicalName    = "[Registro No Encontrado o Eliminado]",
                             RecordUrl      = string.Empty,
-                            ActionCode     = entity.GetAttributeValue<OptionSetValue>("action")?.Value ?? 0,
+                            ActionCode     = SafeGet<OptionSetValue>(entity, "action")?.Value ?? 0,
                             ActionName     = "[Referencia Corrupta - Guid.Empty]",
                             UserId         = string.Empty,
                             UserName       = "[Registro No Encontrado o Eliminado]",
@@ -382,20 +383,20 @@ public class AuditService : IAuditService
                         // ── GUARD: userid/callinguserid con Guid.Empty ───────────────────
                         // Si el GUID del usuario es vacío, no llamamos al SDK para resolverlo;
                         // simplemente lo ignoramos para esa propiedad.
-                        var userRef = entity.GetAttributeValue<EntityReference>("userid");
+                        var userRef = SafeGet<EntityReference>(entity, "userid");
                         if (userRef != null && userRef.Id == Guid.Empty)
                         {
                             // Nulificamos la referencia para que BuildExportRowAsync no llame al SDK
                             entity.Attributes.Remove("userid");
                         }
-                        var callingUserRef = entity.GetAttributeValue<EntityReference>("callinguserid");
+                        var callingUserRef = SafeGet<EntityReference>(entity, "callinguserid");
                         if (callingUserRef != null && callingUserRef.Id == Guid.Empty)
                         {
                             entity.Attributes.Remove("callinguserid");
                         }
 
-                        var changeData    = entity.GetAttributeValue<string>("changedata") ?? string.Empty;
-                        var attributeMask = entity.GetAttributeValue<string>("attributemask") ?? string.Empty;
+                        var changeData    = SafeGet<string>(entity, "changedata") ?? string.Empty;
+                        var attributeMask = SafeGet<string>(entity, "attributemask") ?? string.Empty;
                         var change        = ParseChangeData(changeData);
 
                         if (!ShouldIncludeRecord(attributeMask, change.field, selectedAttributes))
@@ -499,69 +500,163 @@ public class AuditService : IAuditService
         }
     }
 
+    // ─────────────────────────────────────────────────────────────────────────────
+    // HELPER: Aísla cada acceso al diccionario de atributos del SDK.
+    // GetAttributeValue<T> puede lanzar FaultException / NullReferenceException
+    // cuando el MetadataCache interno del SDK tiene entradas corruptas.
+    // Este helper garantiza que NUNCA se propague una excepción al llamador.
+    // ─────────────────────────────────────────────────────────────────────────────
+    private static T? SafeGet<T>(Entity entity, string attributeName)
+    {
+        try
+        {
+            return entity.GetAttributeValue<T>(attributeName);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[SafeGet] Error leyendo '{attributeName}': {ex.GetType().Name} – {ex.Message}");
+            return default;
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // HELPER: Resolución async de nombre con aislamiento total.
+    // Cada llamada al SDK que intenta resolver un Lookup / PrimaryName se envuelve
+    // en su propio try-catch para no interrumpir el procesamiento de la fila.
+    // ─────────────────────────────────────────────────────────────────────────────
+    private async Task<string> SafeResolveNameIfReferenceAsync(
+        string value, string fieldName, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await ResolveNameIfReferenceAsync(value, fieldName, cancellationToken);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[SafeResolveNameIfReference] Campo '{fieldName}': {ex.GetType().Name} – {ex.Message}");
+            return "[Datos Corruptos en Dataverse]";
+        }
+    }
+
+    private async Task<string?> SafeResolveEntityPrimaryNameAsync(
+        string entityLogicalName, Guid id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await ResolveEntityPrimaryNameAsync(entityLogicalName, id, cancellationToken);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[SafeResolveEntityPrimaryName] '{entityLogicalName}' {id}: {ex.GetType().Name} – {ex.Message}");
+            return "[Datos Corruptos en Dataverse]";
+        }
+    }
+
     private async Task<AuditExportRow> BuildExportRowAsync(
         Entity entity,
         (string field, string oldValue, string newValue) parsedChange,
         CancellationToken cancellationToken)
     {
-        var auditId = entity.GetAttributeValue<Guid>("auditid");
-        var createdOn = entity.GetAttributeValue<DateTime>("createdon");
-        var objectReference = entity.GetAttributeValue<EntityReference>("objectid");
-        var objectId = objectReference?.Id;
-        var logicalName = objectReference?.LogicalName
-            ?? entity.GetAttributeValue<string>("objecttypecode")
-            ?? string.Empty;
-        var actionCode = entity.GetAttributeValue<OptionSetValue>("action")?.Value ?? 0;
-        var userRef = entity.GetAttributeValue<EntityReference>("userid");
-        var callingUserRef = entity.GetAttributeValue<EntityReference>("callinguserid");
-        var transactionId = entity.GetAttributeValue<Guid?>("transactionid");
-        var fieldName = parsedChange.field;
-        var oldValue = await ResolveNameIfReferenceAsync(parsedChange.oldValue, fieldName, cancellationToken);
-        var newValue = await ResolveNameIfReferenceAsync(parsedChange.newValue, fieldName, cancellationToken);
+        // ── ESCUDO EXTERIOR ──────────────────────────────────────────────────────
+        // Si cualquier lectura de atributo o llamada al SDK falla de forma
+        // inesperada, este catch devuelve una fila parcial con los datos que
+        // se hayan podido recuperar antes del fallo.
+        // PROHIBIDO: throw / re-lanzar la excepción al método llamador.
+        // ────────────────────────────────────────────────────────────────────────
 
-        // Guard: no llamar al SDK si el Id del usuario es Guid.Empty
-        var userName = !string.IsNullOrWhiteSpace(userRef?.Name)
-            ? userRef.Name
-            : (userRef?.Id is Guid userId && userId != Guid.Empty
-                ? await ResolveEntityPrimaryNameAsync("systemuser", userId, cancellationToken)
-                : null)
-            ?? string.Empty;
+        // ── Lectura segura de atributos primitivos (SafeGet aísla MetadataCache) ─
+        var auditId        = SafeGet<Guid>(entity, "auditid");
+        var createdOn      = SafeGet<DateTime>(entity, "createdon");
+        var objectRef      = SafeGet<EntityReference>(entity, "objectid");
+        var actionOptSet   = SafeGet<OptionSetValue>(entity, "action");
+        var userRef        = SafeGet<EntityReference>(entity, "userid");
+        var callingUserRef = SafeGet<EntityReference>(entity, "callinguserid");
+        var transactionId  = SafeGet<Guid?>(entity, "transactionid");
 
-        var realActor = userName;
-        if (callingUserRef?.Id is Guid callingUserId
-            && userRef?.Id is Guid userIdToCompare
-            && callingUserId != Guid.Empty
-            && callingUserId != userIdToCompare)
+        var objectId    = objectRef?.Id;
+        var logicalName = objectRef?.LogicalName
+                          ?? SafeGet<string>(entity, "objecttypecode")
+                          ?? string.Empty;
+        var actionCode  = actionOptSet?.Value ?? 0;
+        var recordId    = objectId?.ToString("D") ?? string.Empty;
+        var fieldName   = parsedChange.field;
+
+        // ── Resolución async de valores Old/New con aislamiento por campo ────────
+        var oldValue = await SafeResolveNameIfReferenceAsync(
+            parsedChange.oldValue, fieldName, cancellationToken);
+        var newValue = await SafeResolveNameIfReferenceAsync(
+            parsedChange.newValue, fieldName, cancellationToken);
+
+        // ── Resolución segura del nombre de usuario ──────────────────────────────
+        string userName;
+        try
         {
-            var callingUserName = !string.IsNullOrWhiteSpace(callingUserRef.Name)
-                ? callingUserRef.Name
-                : await ResolveEntityPrimaryNameAsync("systemuser", callingUserId, cancellationToken)
-                    ?? callingUserId.ToString("D");
-
-            realActor = string.IsNullOrWhiteSpace(userName)
-                ? $"(via {callingUserName})"
-                : $"{userName} (via {callingUserName})";
+            userName = !string.IsNullOrWhiteSpace(userRef?.Name)
+                ? userRef!.Name
+                : (userRef?.Id is Guid userId && userId != Guid.Empty
+                    ? await SafeResolveEntityPrimaryNameAsync("systemuser", userId, cancellationToken)
+                    : null)
+                ?? string.Empty;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[BuildExportRowAsync] userName: {ex.GetType().Name} – {ex.Message}");
+            userName = "[Datos Corruptos en Dataverse]";
         }
 
-        var recordId = objectId?.ToString("D") ?? string.Empty;
+        // ── Resolución segura del actor real (callinguser) ───────────────────────
+        var realActor = userName;
+        try
+        {
+            if (callingUserRef?.Id is Guid callingUserId
+                && userRef?.Id is Guid userIdToCompare
+                && callingUserId != Guid.Empty
+                && callingUserId != userIdToCompare)
+            {
+                var callingUserName = !string.IsNullOrWhiteSpace(callingUserRef.Name)
+                    ? callingUserRef.Name
+                    : await SafeResolveEntityPrimaryNameAsync("systemuser", callingUserId, cancellationToken)
+                        ?? callingUserId.ToString("D");
+
+                realActor = string.IsNullOrWhiteSpace(userName)
+                    ? $"(via {callingUserName})"
+                    : $"{userName} (via {callingUserName})";
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[BuildExportRowAsync] realActor: {ex.GetType().Name} – {ex.Message}");
+            realActor = string.IsNullOrWhiteSpace(userName)
+                ? "[Datos Corruptos en Dataverse]"
+                : userName;
+        }
 
         return new AuditExportRow
         {
-            AuditId = auditId.ToString(),
-            CreatedOn = createdOn == default ? string.Empty : createdOn.ToUniversalTime().ToString("O"),
-            EntityName = logicalName,
-            RecordId = recordId,
-            LogicalName = logicalName,
-            RecordUrl = BuildRecordUrl(logicalName, recordId),
-            ActionCode = actionCode,
-            ActionName = GetOperationName(actionCode),
-            UserId = userRef?.Id.ToString() ?? string.Empty,
-            UserName = userName,
-            RealActor = realActor,
+            AuditId       = auditId.ToString(),
+            CreatedOn     = createdOn == default ? string.Empty : createdOn.ToUniversalTime().ToString("O"),
+            EntityName    = logicalName,
+            RecordId      = recordId,
+            LogicalName   = logicalName,
+            RecordUrl     = BuildRecordUrl(logicalName, recordId),
+            ActionCode    = actionCode,
+            ActionName    = GetOperationName(actionCode),
+            UserId        = userRef?.Id.ToString() ?? string.Empty,
+            UserName      = userName,
+            RealActor     = realActor,
             TransactionId = transactionId?.ToString() ?? string.Empty,
-            ChangedField = fieldName,
-            OldValue = oldValue,
-            NewValue = newValue
+            ChangedField  = fieldName,
+            OldValue      = oldValue,
+            NewValue      = newValue
         };
     }
 
