@@ -231,6 +231,22 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanExtract))]
     private async Task ExtractAsync()
     {
+        // ── Selector de ruta de guardado ───────────────────────────────────────────────────
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title       = "Guardar archivo de auditoría",
+            Filter      = "Excel Files (*.xlsx)|*.xlsx|CSV Files (*.csv)|*.csv",
+            DefaultExt  = ".xlsx",
+            FileName    = $"audit_{EntityName}_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx",
+            OverwritePrompt = true
+        };
+
+        if (dialog.ShowDialog() != true)
+        {
+            return;   // El usuario canceló: abortamos silenciosamente.
+        }
+
+        OutputPath = dialog.FileName;
         IsBusy = true;
         ProgressValue = 0;
         StatusMessage = "Preparando extracción...";

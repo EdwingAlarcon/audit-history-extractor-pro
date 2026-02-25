@@ -177,28 +177,42 @@ public class QueryBuilderService
 
     private static (DateTime? fromDate, DateTime? toDate) ResolveDateRange(AuditQueryFilters filters)
     {
+        // ── GUARD: "Todos" = sin restricción de fechas ────────────────────────
+        // Si el usuario seleccionó "Todo" (DateRangeFilter.Todo), no se aplica
+        // ningún filtro de fecha. StartDate/EndDate siempre vienen poblados
+        // desde BuildStartDateTime() aunque el usuario no haya especificado
+        // un rango, por lo que el check de SelectedDateRange tiene prioridad.
+        if (filters.SelectedDateRange == DateRangeFilter.Todo)
+        {
+            return (null, null);
+        }
+
         var explicitFrom = filters.StartDate ?? filters.SelectedDateFrom;
-        var explicitTo = filters.EndDate ?? filters.SelectedDateTo;
+        var explicitTo   = filters.EndDate   ?? filters.SelectedDateTo;
 
         if (explicitFrom.HasValue || explicitTo.HasValue)
         {
+            // ── UTC: Dataverse almacena createdon en UTC. Convertimos las fechas
+            // locales / unspecified a UTC para que el rango de fechas sea correcto.
             if (filters.IsFullDay)
             {
-                var fromDate = explicitFrom?.Date;
-                var toDate = explicitTo?.Date.AddDays(1).AddTicks(-1);
+                var fromDate = explicitFrom?.Date.ToUniversalTime();
+                var toDate   = explicitTo?.Date.AddDays(1).AddTicks(-1).ToUniversalTime();
                 return (fromDate, toDate);
             }
 
-            return (explicitFrom, explicitTo);
+            return (
+                explicitFrom?.ToUniversalTime(),
+                explicitTo?.ToUniversalTime());
         }
 
         var now = DateTime.UtcNow;
         return filters.SelectedDateRange switch
         {
-            DateRangeFilter.Hoy => (now.Date, now),
+            DateRangeFilter.Hoy    => (now.Date, now),
             DateRangeFilter.Semana => (now.Date.AddDays(-7), now),
-            DateRangeFilter.Mes => (now.Date.AddMonths(-1), now),
-            _ => (null, null)
+            DateRangeFilter.Mes    => (now.Date.AddMonths(-1), now),
+            _                      => (null, null)
         };
     }
 }
