@@ -56,6 +56,9 @@
                                 <TextBlock Text="Usuario" Style="{StaticResource SectionTitleStyle}" Margin="0,0,0,6" />
                                 <TextBox Height="32" Margin="0,0,0,8" Text="{Binding ProfileUserName, UpdateSourceTrigger=PropertyChanged}" />
 
+                                <TextBlock Text="Credencial" Style="{StaticResource SectionTitleStyle}" Margin="0,0,0,6" />
+                                <TextBox Height="32" Margin="0,0,0,8" Text="{Binding ProfileCredential, UpdateSourceTrigger=PropertyChanged}" />
+
                                 <StackPanel Orientation="Horizontal">
                                     <Button Content="Guardar Perfil" Command="{Binding SaveProfileCommand}" Margin="0,0,6,0" />
                                     <Button Content="Borrar Perfil" Command="{Binding DeleteProfileCommand}" />

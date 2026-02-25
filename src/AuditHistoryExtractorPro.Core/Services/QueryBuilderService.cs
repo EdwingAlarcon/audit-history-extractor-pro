@@ -44,12 +44,12 @@ public class QueryBuilderService
         var (fromDate, toDate) = ResolveDateRange(filters);
         if (fromDate.HasValue)
         {
-            query.Criteria.AddCondition("createdon", ConditionOperator.GreaterEqual, fromDate.Value);
+            query.Criteria.AddCondition("createdon", ConditionOperator.GreaterEqual, NormalizeToUtc(fromDate.Value));
         }
 
         if (toDate.HasValue)
         {
-            query.Criteria.AddCondition("createdon", ConditionOperator.LessEqual, toDate.Value);
+            query.Criteria.AddCondition("createdon", ConditionOperator.LessEqual, NormalizeToUtc(toDate.Value));
         }
 
         // ── Filtro de operación (BYPASS si lista vacía) ───────────────────────

@@ -51,6 +51,9 @@ public partial class MainViewModel : ObservableObject
     private string profileUserName = string.Empty;
 
     [ObservableProperty]
+    private string profileCredential = string.Empty;
+
+    [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(DeleteProfileCommand))]
     private ConnectionProfile? selectedConnectionProfile;
 
@@ -473,6 +476,7 @@ public partial class MainViewModel : ObservableObject
 
         ProfileName = value.Name;
         ProfileUserName = value.UserName;
+        ProfileCredential = value.Credential;
         CrmUrl = value.Url;
     }
 
@@ -646,6 +650,7 @@ public partial class MainViewModel : ObservableObject
         {
             ProfileName = string.Empty;
             ProfileUserName = string.Empty;
+            ProfileCredential = string.Empty;
         }
 
         SelectedConnectionProfile = null;
@@ -894,6 +899,7 @@ public partial class MainViewModel : ObservableObject
             Name = normalizedName,
             Url = CrmUrl.Trim(),
             UserName = ProfileUserName.Trim(),
+            Credential = ProfileCredential,
             LastUsed = markAsUsed ? DateTime.UtcNow : SelectedConnectionProfile?.LastUsed ?? DateTime.UtcNow
         };
 
