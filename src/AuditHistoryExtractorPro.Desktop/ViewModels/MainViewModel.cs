@@ -5,6 +5,7 @@ using AuditHistoryExtractorPro.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
+using Microsoft.Xrm.Sdk;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
@@ -16,6 +17,7 @@ namespace AuditHistoryExtractorPro.Desktop.ViewModels;
 public partial class MainViewModel : ObservableObject
 {
     private readonly IAuditService _auditService;
+    private readonly IAuditProcessingService _auditProcessingService;
     private readonly IMetadataService _metadataService;
     private readonly IDataService _dataService;
     private readonly ConnectionManagerService _connectionManagerService;
@@ -116,12 +118,14 @@ public partial class MainViewModel : ObservableObject
 
     public MainViewModel(
         IAuditService auditService,
+        IAuditProcessingService auditProcessingService,
         IMetadataService metadataService,
         IDataService dataService,
         ConnectionManagerService connectionManagerService,
         ILogger<MainViewModel> logger)
     {
         _auditService = auditService;
+        _auditProcessingService = auditProcessingService;
         _metadataService = metadataService;
         _dataService = dataService;
         _connectionManagerService = connectionManagerService;
@@ -814,6 +818,41 @@ public partial class MainViewModel : ObservableObject
         }
 
         return fallback;
+    }
+
+    // Ejemplo de uso del servicio de intersección desde MVVM sin bloquear UI.
+    // - Task.Run mueve CPU-bound work fuera del Dispatcher.
+    // - Progress<int> reporta en el hilo UI (SynchronizationContext de WPF).
+    private async Task<(IReadOnlyList<Entity> matchedEntities, IntersectionMetrics metrics)> IntersectPageInBackgroundAsync(
+        IReadOnlyList<Entity> pageEntities,
+        HashSet<Guid> viewIdsHash,
+        CancellationToken cancellationToken)
+    {
+        var progress = new Progress<int>(matched =>
+        {
+            ProgressValue = Math.Min(95, matched);
+            StatusMessage = $"Intersección en memoria: {matched:N0} coincidencias...";
+        });
+
+        var result = await Task.Run(
+            () => _auditProcessingService.IntersectPageAsync(
+                pageEntities,
+                viewIdsHash,
+                progress,
+                cancellationToken,
+                batchSize: 1024,
+                progressStep: 500,
+                maxDegreeOfParallelism: Environment.ProcessorCount),
+            cancellationToken);
+
+        _logger.LogInformation(
+            "[MainViewModel] Intersección background completa. Processed={Processed} Matched={Matched} Discarded={Discarded} Time={ElapsedMs}ms",
+            result.Metrics.Processed,
+            result.Metrics.Matched,
+            result.Metrics.Discarded,
+            result.Metrics.ElapsedMilliseconds);
+
+        return result;
     }
 
     private async Task LoadConnectionProfilesAsync()

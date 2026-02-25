@@ -23,6 +23,7 @@ public class AuditService : IAuditService
     private const int MaxDataversePageSize = 5000;
     private readonly AuthHelper _authHelper;
     private readonly QueryBuilderService _queryBuilderService;
+    private readonly IAuditProcessingService _auditProcessingService;
     private readonly IExcelExportService _excelExportService;
     private readonly IMetadataTranslationService _metadataTranslationService;
     private readonly Microsoft.Extensions.Logging.ILogger<AuditService> _logger;
@@ -52,12 +53,14 @@ public class AuditService : IAuditService
     public AuditService(
         AuthHelper authHelper,
         QueryBuilderService queryBuilderService,
+        IAuditProcessingService auditProcessingService,
         IExcelExportService excelExportService,
         IMetadataTranslationService metadataTranslationService,
         Microsoft.Extensions.Logging.ILogger<AuditService> logger)
     {
         _authHelper = authHelper;
         _queryBuilderService = queryBuilderService;
+        _auditProcessingService = auditProcessingService;
         _excelExportService = excelExportService;
         _metadataTranslationService = metadataTranslationService;
         _logger = logger;
@@ -233,7 +236,10 @@ public class AuditService : IAuditService
                 return Array.Empty<AuditExportRow>();
             }
 
-            viewIdsHash = new HashSet<Guid>(objectIds);
+            // Pre-alocación exacta para evitar re-hashes durante la carga de IDs.
+            viewIdsHash = new HashSet<Guid>(objectIds.Count, EqualityComparer<Guid>.Default);
+            foreach (var objectId in objectIds)
+                viewIdsHash.Add(objectId);
         }
 
         var rows = new List<AuditExportRow>(maxRows);
@@ -306,7 +312,10 @@ public class AuditService : IAuditService
             }
             if (request.SelectedView is not null)
             {
-                viewIdsHash = new HashSet<Guid>(objectIds);
+                // Pre-alocación exacta para evitar re-hashes durante la carga de IDs.
+                viewIdsHash = new HashSet<Guid>(objectIds.Count, EqualityComparer<Guid>.Default);
+                foreach (var objectId in objectIds)
+                    viewIdsHash.Add(objectId);
             }
 
             var totalWritten = 0;
@@ -398,18 +407,32 @@ public class AuditService : IAuditService
 
             var startIndex = totalWritten + 1;
 
+            var intersectionProgress = progress is null
+                ? null
+                : new Progress<int>(matched =>
+                    progress.Report($"Intersección en memoria: {matched} coincidencias acumuladas en página {pageNumber}..."));
+
+            var (matchedEntities, metrics) = await _auditProcessingService.IntersectPageAsync(
+                page.Entities,
+                viewIdsHash,
+                intersectionProgress,
+                cancellationToken);
+
+            _logger.LogDebug(
+                "[StreamRows] Intersección página {PageNumber}: Processed={Processed} Matched={Matched} Discarded={Discarded} Time={ElapsedMs}ms Batches={Batches}",
+                pageNumber,
+                metrics.Processed,
+                metrics.Matched,
+                metrics.Discarded,
+                metrics.ElapsedMilliseconds,
+                metrics.Batches);
+
             // ── Paso 3: Iterar cada entidad → llamar RetrieveAuditDetailsRequest ─────
             var stopped = false;
-            foreach (var entity in page.Entities)
+            foreach (var entity in matchedEntities)
             {
                 if (stopped || totalWritten >= request.MaxRecords) break;
                 cancellationToken.ThrowIfCancellationRequested();
-
-                var auditObjectId = entity.GetAttributeValue<EntityReference>("objectid")?.Id ?? Guid.Empty;
-                if (viewIdsHash is not null && !viewIdsHash.Contains(auditObjectId))
-                {
-                    continue;
-                }
 
                 // ── Segunda línea de defensa: las filas se recopilan en lista dentro
                 // del try-catch, y se emiten fuera de él.
