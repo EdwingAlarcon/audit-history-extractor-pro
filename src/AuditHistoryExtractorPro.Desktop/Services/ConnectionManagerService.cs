@@ -49,6 +49,10 @@ public sealed class ConnectionManagerService
             .ToList();
     }
 
+    // API explícita solicitada para gestión de conexiones seguras.
+    public Task<IReadOnlyList<ConnectionProfile>> GetConnections(CancellationToken cancellationToken = default)
+        => GetProfilesAsync(cancellationToken);
+
     public async Task SaveProfileAsync(ConnectionProfile profile, CancellationToken cancellationToken = default)
     {
         var profiles = (await LoadStoredProfilesAsync(cancellationToken)).ToList();
@@ -80,6 +84,10 @@ public sealed class ConnectionManagerService
         await SaveProfilesInternalAsync(profiles, cancellationToken);
     }
 
+    // API explícita solicitada para gestión de conexiones seguras.
+    public Task SaveConnection(ConnectionProfile profile, CancellationToken cancellationToken = default)
+        => SaveProfileAsync(profile, cancellationToken);
+
     public async Task DeleteProfileAsync(string profileName, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(profileName))
@@ -91,6 +99,10 @@ public sealed class ConnectionManagerService
         profiles.RemoveAll(p => string.Equals(p.Name, profileName, StringComparison.OrdinalIgnoreCase));
         await SaveProfilesInternalAsync(profiles, cancellationToken);
     }
+
+    // API explícita solicitada para gestión de conexiones seguras.
+    public Task DeleteConnection(string connectionName, CancellationToken cancellationToken = default)
+        => DeleteProfileAsync(connectionName, cancellationToken);
 
     private async Task<IReadOnlyList<StoredConnectionProfile>> LoadStoredProfilesAsync(CancellationToken cancellationToken)
     {

@@ -837,20 +837,30 @@ public class AuditService : IAuditService
 
             if (detail is not null)
             {
-                // ── Recopilar todos los atributos cambiados ──────────────────────
-                var changedAttrs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                if (detail.OldValue?.Attributes is { Count: > 0 } oldA)
-                    foreach (var k in oldA.Keys) changedAttrs.Add(k);
-                if (detail.NewValue?.Attributes is { Count: > 0 } newA)
-                    foreach (var k in newA.Keys) changedAttrs.Add(k);
+                rows.AddRange(ProcessAuditToFlatList(
+                    detail,
+                    selectedAttributes,
+                    auditIdStr,
+                    createdOnStr,
+                    logicalName,
+                    recordId,
+                    recordKeyValue,
+                    recordUrl,
+                    actionCode,
+                    operationCode,
+                    userIdStr,
+                    userName,
+                    realActor,
+                    txIdStr));
+            }
+            else
+            {
+                // ── Fallback: parsear el XML de changedata ───────────────────────
+                var changeData = SafeGet<string>(auditEntity, "changedata") ?? string.Empty;
+                var parsedChanges = ParseChangeData(changeData);
 
-                // Aplicar filtro de atributos seleccionados por el usuario
-                if (selectedAttributes.Count > 0)
-                    changedAttrs.IntersectWith(selectedAttributes);
-
-                if (changedAttrs.Count == 0)
+                if (parsedChanges.Count == 0)
                 {
-                    // Evento sin campos detallados (Create sin tracking, etc.)
                     rows.Add(new AuditExportRow
                     {
                         AuditId        = auditIdStr,
@@ -877,23 +887,21 @@ public class AuditService : IAuditService
                 }
                 else
                 {
-                    // Una fila por cada atributo cambiado (flattening)
-                    foreach (var attrName in changedAttrs)
+                    foreach (var parsed in parsedChanges)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
 
-                        var rawOld = detail.OldValue?.Contains(attrName) == true
-                            ? detail.OldValue.GetAttributeValue<object>(attrName) : null;
-                        var rawNew = detail.NewValue?.Contains(attrName) == true
-                            ? detail.NewValue.GetAttributeValue<object>(attrName) : null;
+                        if (selectedAttributes.Count > 0
+                            && !string.IsNullOrEmpty(parsed.field)
+                            && !selectedAttributes.Contains(parsed.field))
+                        {
+                            continue;
+                        }
 
-                        var oldVal = TranslateAuditAttributeValue(attrName, rawOld);
-                        var newVal = TranslateAuditAttributeValue(attrName, rawNew);
-
-                        // LookupOldValue / LookupNewValue: Name del EntityReference
-                        // (vacío para tipos que no son Lookup)
-                        var lookupOld = ExtractLookupName(rawOld);
-                        var lookupNew = ExtractLookupName(rawNew);
+                        var oldVal = string.IsNullOrEmpty(parsed.oldValue) ? string.Empty
+                            : await SafeResolveNameIfReferenceAsync(parsed.oldValue, parsed.field, cancellationToken);
+                        var newVal = string.IsNullOrEmpty(parsed.newValue) ? string.Empty
+                            : await SafeResolveNameIfReferenceAsync(parsed.newValue, parsed.field, cancellationToken);
 
                         rows.Add(new AuditExportRow
                         {
@@ -912,61 +920,13 @@ public class AuditService : IAuditService
                             UserName       = userName,
                             RealActor      = realActor,
                             TransactionId  = txIdStr,
-                            ChangedField   = attrName,
+                            ChangedField   = parsed.field,
                             OldValue       = oldVal,
                             NewValue       = newVal,
-                            LookupOldValue = lookupOld,
-                            LookupNewValue = lookupNew
+                            LookupOldValue = oldVal,
+                            LookupNewValue = newVal
                         });
                     }
-                }
-            }
-            else
-            {
-                // ── Fallback: parsear el XML de changedata ───────────────────────
-                var changeData = SafeGet<string>(auditEntity, "changedata") ?? string.Empty;
-                var parsed     = ParseChangeData(changeData);
-
-                if (selectedAttributes.Count > 0
-                    && !string.IsNullOrEmpty(parsed.field)
-                    && !selectedAttributes.Contains(parsed.field))
-                {
-                    // Campo excluido por filtro de atributos — no se descarta
-                    // el registro; simplemente no produce fila (filtro explícito del usuario).
-                }
-                else
-                {
-                    var oldVal = string.IsNullOrEmpty(parsed.oldValue) ? string.Empty
-                        : await SafeResolveNameIfReferenceAsync(parsed.oldValue, parsed.field, cancellationToken);
-                    var newVal = string.IsNullOrEmpty(parsed.newValue) ? string.Empty
-                        : await SafeResolveNameIfReferenceAsync(parsed.newValue, parsed.field, cancellationToken);
-
-                    rows.Add(new AuditExportRow
-                    {
-                        AuditId        = auditIdStr,
-                        CreatedOn      = createdOnStr,
-                        EntityName     = logicalName,
-                        LogicalName    = logicalName,
-                        RecordId       = recordId,
-                        RecordKeyValue = recordKeyValue,
-                        RecordUrl      = recordUrl,
-                        ActionCode     = actionCode,
-                        ActionName     = GetAuditActionName(actionCode),
-                        OperationId    = operationCode,
-                        Operation      = GetAuditOperationName(operationCode),
-                        UserId         = userIdStr,
-                        UserName       = userName,
-                        RealActor      = realActor,
-                        TransactionId  = txIdStr,
-                        ChangedField   = parsed.field,
-                        // En el fallback (changedata XML), los valores ya son strings.
-                        // LookupOldValue/New duplica OldValue/NewValue cuando el campo
-                        // es un Lookup resuelto por ResolveNameIfReferenceAsync.
-                        OldValue       = oldVal,
-                        NewValue       = newVal,
-                        LookupOldValue = oldVal,
-                        LookupNewValue = newVal
-                    });
                 }
             }
         }
@@ -1017,6 +977,98 @@ public class AuditService : IAuditService
             cancellationToken.ThrowIfCancellationRequested();
             yield return row;
         }
+    }
+
+    private List<AuditExportRow> ProcessAuditToFlatList(
+        AttributeAuditDetail detail,
+        HashSet<string> selectedAttributes,
+        string auditId,
+        string createdOn,
+        string entityName,
+        string recordId,
+        string recordKeyValue,
+        string recordUrl,
+        int actionCode,
+        int operationCode,
+        string userId,
+        string username,
+        string realActor,
+        string transactionId)
+    {
+        // ── Recopilar todos los atributos cambiados ───────────────────────────
+        var changedAttrs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (detail.OldValue?.Attributes is { Count: > 0 } oldA)
+            foreach (var k in oldA.Keys) changedAttrs.Add(k);
+        if (detail.NewValue?.Attributes is { Count: > 0 } newA)
+            foreach (var k in newA.Keys) changedAttrs.Add(k);
+
+        if (selectedAttributes.Count > 0)
+            changedAttrs.IntersectWith(selectedAttributes);
+
+        if (changedAttrs.Count == 0)
+        {
+            return new List<AuditExportRow>
+            {
+                new()
+                {
+                    AuditId        = auditId,
+                    CreatedOn      = createdOn,
+                    EntityName     = entityName,
+                    LogicalName    = entityName,
+                    RecordId       = recordId,
+                    RecordKeyValue = recordKeyValue,
+                    RecordUrl      = recordUrl,
+                    ActionCode     = actionCode,
+                    ActionName     = GetAuditActionName(actionCode),
+                    OperationId    = operationCode,
+                    Operation      = GetAuditOperationName(operationCode),
+                    UserId         = userId,
+                    UserName       = username,
+                    RealActor      = realActor,
+                    TransactionId  = transactionId,
+                    ChangedField   = string.Empty,
+                    OldValue       = string.Empty,
+                    NewValue       = string.Empty,
+                    LookupOldValue = string.Empty,
+                    LookupNewValue = string.Empty
+                }
+            };
+        }
+
+        var rows = new List<AuditExportRow>(changedAttrs.Count);
+        foreach (var attrName in changedAttrs)
+        {
+            var rawOld = detail.OldValue?.Contains(attrName) == true
+                ? detail.OldValue.GetAttributeValue<object>(attrName) : null;
+            var rawNew = detail.NewValue?.Contains(attrName) == true
+                ? detail.NewValue.GetAttributeValue<object>(attrName) : null;
+
+            rows.Add(new AuditExportRow
+            {
+                AuditId        = auditId,
+                CreatedOn      = createdOn,
+                EntityName     = entityName,
+                LogicalName    = entityName,
+                RecordId       = recordId,
+                RecordKeyValue = recordKeyValue,
+                RecordUrl      = recordUrl,
+                ActionCode     = actionCode,
+                ActionName     = GetAuditActionName(actionCode),
+                OperationId    = operationCode,
+                Operation      = GetAuditOperationName(operationCode),
+                UserId         = userId,
+                UserName       = username,
+                RealActor      = realActor,
+                TransactionId  = transactionId,
+                ChangedField   = attrName,
+                OldValue       = TranslateAuditAttributeValue(attrName, rawOld),
+                NewValue       = TranslateAuditAttributeValue(attrName, rawNew),
+                LookupOldValue = ExtractLookupName(rawOld),
+                LookupNewValue = ExtractLookupName(rawNew)
+            });
+        }
+
+        return rows;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1258,31 +1310,28 @@ public class AuditService : IAuditService
         return $"{baseUrl}/main.aspx?etn={WebUtility.UrlEncode(logicalName)}&id={WebUtility.UrlEncode(recordId)}&pagetype=entityrecord";
     }
 
-    private (string field, string oldValue, string newValue) ParseChangeData(string changeData)
+    private IReadOnlyList<(string field, string oldValue, string newValue)> ParseChangeData(string changeData)
     {
         if (string.IsNullOrWhiteSpace(changeData))
         {
-            return (string.Empty, string.Empty, string.Empty);
+            return Array.Empty<(string field, string oldValue, string newValue)>();
         }
 
         try
         {
             var document = XDocument.Parse(changeData);
-            var firstAttribute = document.Descendants("attribute").FirstOrDefault();
-            if (firstAttribute is null)
-            {
-                return (string.Empty, string.Empty, string.Empty);
-            }
+            var attributes = document.Descendants("attribute")
+                .Select(a => (
+                    field: a.Attribute("name")?.Value ?? string.Empty,
+                    oldValue: a.Element("oldValue")?.Value ?? string.Empty,
+                    newValue: a.Element("newValue")?.Value ?? string.Empty))
+                .ToList();
 
-            var fieldName = firstAttribute.Attribute("name")?.Value ?? string.Empty;
-            var oldValue = firstAttribute.Element("oldValue")?.Value ?? string.Empty;
-            var newValue = firstAttribute.Element("newValue")?.Value ?? string.Empty;
-
-            return (fieldName, oldValue, newValue);
+            return attributes;
         }
         catch
         {
-            return (string.Empty, string.Empty, string.Empty);
+            return Array.Empty<(string field, string oldValue, string newValue)>();
         }
     }
 
