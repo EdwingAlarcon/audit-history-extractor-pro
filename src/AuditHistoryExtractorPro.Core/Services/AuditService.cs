@@ -672,7 +672,9 @@ public class AuditService : IAuditService
             yield return new AuditExportRow
             {
                 AuditId       = auditId.ToString(),
-                CreatedOn     = createdOn == default ? string.Empty : createdOn.ToUniversalTime().ToString("O"),
+                CreatedOn     = createdOn == default
+                    ? string.Empty
+                    : createdOn.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
                 EntityName    = "[Registro No Encontrado o Eliminado]",
                 RecordId      = "[Guid.Empty]",
                 LogicalName   = "[Registro No Encontrado o Eliminado]",
@@ -703,7 +705,12 @@ public class AuditService : IAuditService
         var recordId     = objectRef?.Id.ToString("D") ?? string.Empty;
         var actionCode   = actionOptSet?.Value ?? 0;
         var auditIdStr   = auditId != Guid.Empty ? auditId.ToString() : string.Empty;
-        var createdOnStr = createdOn == default ? string.Empty : createdOn.ToUniversalTime().ToString("O");
+        // ToLocalTime(): Dataverse devuelve createdon como UTC (Kind=Utc).
+        // Lo convertimos a la zona local del usuario para que las fechas en el
+        // Excel coincidan con lo que el usuario ve en la UI de Dynamics.
+        var createdOnStr = createdOn == default
+            ? string.Empty
+            : createdOn.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
         var txIdStr      = transactionId?.ToString() ?? string.Empty;
         var userIdStr    = userRef?.Id.ToString() ?? string.Empty;
         var recordUrl    = BuildRecordUrl(logicalName, recordId);
@@ -888,7 +895,7 @@ public class AuditService : IAuditService
                                                && labels.TryGetValue(o.Value, out var lbl) ? lbl : o.Value.ToString())),
                 EntityReference er        => !string.IsNullOrWhiteSpace(er.Name) ? er.Name : er.Id.ToString("D"),
                 EntityCollection ec       => string.Join("; ", ec.Entities.Select(e => e.Id.ToString("D"))),
-                DateTime dt               => dt.ToUniversalTime().ToString("O"),
+                DateTime dt               => dt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
                 Money m                   => m.Value.ToString("F2", CultureInfo.InvariantCulture),
                 decimal d                 => d.ToString("F4", CultureInfo.InvariantCulture),
                 double d                  => d.ToString("F4", CultureInfo.InvariantCulture),

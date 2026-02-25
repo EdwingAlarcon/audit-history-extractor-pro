@@ -217,18 +217,40 @@ public class QueryBuilderService
 
         if (explicitFrom.HasValue || explicitTo.HasValue)
         {
-            // ── UTC: Dataverse almacena createdon en UTC. Convertimos las fechas
-            // locales / unspecified a UTC para que el rango de fechas sea correcto.
+            // Usamos DateTime.SpecifyKind(..., Local) de forma explícita antes de
+            // ToUniversalTime() para eliminar la ambigüedad de Kind=Unspecified que
+            // devuelve DateTime.Date. Sin SpecifyKind, .NET trata Unspecified como
+            // Local en ToUniversalTime(), pero la intención queda implícita y
+            // puede variar según el entorno (e.g. servidor sin zona configurada).
             if (filters.IsFullDay)
             {
-                var fromDate = explicitFrom?.Date.ToUniversalTime();
-                var toDate   = explicitTo?.Date.AddDays(1).AddTicks(-1).ToUniversalTime();
-                return (fromDate, toDate);
+                // Inicio: medianoche del día seleccionado en hora local → UTC
+                var fromLocal = explicitFrom.HasValue
+                    ? DateTime.SpecifyKind(explicitFrom.Value.Date, DateTimeKind.Local)
+                    : (DateTime?)null;
+
+                // Fin: último instante del día seleccionado en hora local → UTC
+                // Date.AddDays(1).AddTicks(-1) = 23:59:59.9999999 del día elegido
+                var toLocal = explicitTo.HasValue
+                    ? DateTime.SpecifyKind(explicitTo.Value.Date.AddDays(1).AddTicks(-1), DateTimeKind.Local)
+                    : (DateTime?)null;
+
+                return (fromLocal?.ToUniversalTime(), toLocal?.ToUniversalTime());
             }
 
-            return (
-                explicitFrom?.ToUniversalTime(),
-                explicitTo?.ToUniversalTime());
+            // Rango con hora explícita: el usuario especificó HH:mm
+            // Forzamos Kind=Local antes de convertir a UTC.
+            var fromExplicit = explicitFrom.HasValue
+                ? DateTime.SpecifyKind(explicitFrom.Value, DateTimeKind.Local).ToUniversalTime()
+                : (DateTime?)null;
+
+            // Suma :59 segundos al minuto final para que el filtro ≤ cubra el
+            // segundo completo (evita perder registros de :mm:01…:mm:59).
+            var toExplicit = explicitTo.HasValue
+                ? DateTime.SpecifyKind(explicitTo.Value.AddSeconds(59), DateTimeKind.Local).ToUniversalTime()
+                : (DateTime?)null;
+
+            return (fromExplicit, toExplicit);
         }
 
         var now = DateTime.UtcNow;
