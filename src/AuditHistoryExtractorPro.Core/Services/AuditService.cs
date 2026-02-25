@@ -225,21 +225,21 @@ public class AuditService : IAuditService
 
         // Paso 1: resolver IDs desde la Vista seleccionada (si aplica)
         var objectIds = await ResolveViewObjectIdsAsync(previewRequest.SelectedView, cancellationToken);
+        HashSet<Guid>? viewIdsHash = null;
+        if (previewRequest.SelectedView is not null)
+        {
+            if (objectIds.Count == 0)
+            {
+                return Array.Empty<AuditExportRow>();
+            }
+
+            viewIdsHash = new HashSet<Guid>(objectIds);
+        }
 
         var rows = new List<AuditExportRow>(maxRows);
 
-        // BUG FIX: si hay IDs de Vista, NO pasarlos todos a StreamRowsAsync (que los mete en
-        // un único IN clause → Query Size Limit en Dataverse con >500 IDs).
-        // En su lugar se usa el mismo camino chunked que ExtractAuditHistoryAsync.
-        IAsyncEnumerable<AuditExportRow> previewStream;
-        if (objectIds.Count == 0)
-        {
-            previewStream = StreamRowsAsync(previewRequest, null, progress: null, updateCount: _ => { }, cancellationToken);
-        }
-        else
-        {
-            previewStream = StreamAllChunksAsync(previewRequest, objectIds, progress: null, updateCount: _ => { }, cancellationToken);
-        }
+        IAsyncEnumerable<AuditExportRow> previewStream =
+            StreamRowsAsync(previewRequest, viewIdsHash, progress: null, updateCount: _ => { }, cancellationToken);
 
         await foreach (var row in previewStream)
         {
@@ -297,24 +297,22 @@ public class AuditService : IAuditService
 
             // Paso 1: resolver IDs desde la Vista seleccionada (si aplica)
             var objectIds = await ResolveViewObjectIdsAsync(request.SelectedView, cancellationToken);
+            HashSet<Guid>? viewIdsHash = null;
             if (request.SelectedView is not null && objectIds.Count == 0)
             {
                 // La Vista no devuelve ningún registro → no hay auditoría posible
                 progress?.Report("La Vista seleccionada no devuelve registros. Extracción finalizada.");
                 return AuditHistoryExtractorPro.Core.Models.ExtractionResult.Ok(0, filePath, "La Vista seleccionada no devuelve registros.");
             }
+            if (request.SelectedView is not null)
+            {
+                viewIdsHash = new HashSet<Guid>(objectIds);
+            }
 
             var totalWritten = 0;
-            // Paso 2 & 3: streaming paginado sobre 'audit', con RetrieveAuditDetailsRequest por fila
-            IAsyncEnumerable<AuditExportRow> asyncRows;
-            if (objectIds.Count == 0)
-            {
-                asyncRows = StreamRowsAsync(request, null, progress, count => totalWritten = count, cancellationToken);
-            }
-            else
-            {
-                asyncRows = StreamAllChunksAsync(request, objectIds, progress, count => totalWritten = count, cancellationToken);
-            }
+            // Paso 2 & 3: streaming paginado sobre 'audit' + intersección en memoria por Vista.
+            IAsyncEnumerable<AuditExportRow> asyncRows =
+                StreamRowsAsync(request, viewIdsHash, progress, count => totalWritten = count, cancellationToken);
 
             await _excelExportService.ExportAsync(filePath, asyncRows, cancellationToken);
 
@@ -337,7 +335,7 @@ public class AuditService : IAuditService
 
     private async IAsyncEnumerable<AuditExportRow> StreamRowsAsync(
         ExtractionRequest request,
-        IReadOnlyList<Guid>? objectIds,
+        HashSet<Guid>? viewIdsHash,
         IProgress<string>? progress,
         Action<int> updateCount,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
@@ -360,10 +358,12 @@ public class AuditService : IAuditService
             SelectedActions = request.SelectedActions,
             SelectedAttributes = request.SelectedAttributes,
             SearchValue = request.SearchValue,
-            RecordId = request.RecordId,
+            // Estrictamente prohibido enviar filtros por objectid al backend
+            // cuando se usa arquitectura de intersección en memoria.
+            RecordId = string.Empty,
             StartDate = request.StartDate,
             EndDate = request.EndDate,
-            ObjectIds = objectIds ?? Array.Empty<Guid>()
+            ObjectIds = Array.Empty<Guid>()
         };
 
         var selectedAttributes = new HashSet<string>(request.SelectedAttributes, StringComparer.OrdinalIgnoreCase);
@@ -404,6 +404,12 @@ public class AuditService : IAuditService
             {
                 if (stopped || totalWritten >= request.MaxRecords) break;
                 cancellationToken.ThrowIfCancellationRequested();
+
+                var auditObjectId = entity.GetAttributeValue<EntityReference>("objectid")?.Id ?? Guid.Empty;
+                if (viewIdsHash is not null && !viewIdsHash.Contains(auditObjectId))
+                {
+                    continue;
+                }
 
                 // ── Segunda línea de defensa: las filas se recopilan en lista dentro
                 // del try-catch, y se emiten fuera de él.
@@ -1185,65 +1191,6 @@ public class AuditService : IAuditService
             return doc.ToString(SaveOptions.DisableFormatting);
         }
         catch { return fetchXml; }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // PASO 2 — Chunked streaming: divide la lista de IDs en lotes de 500 para
-    // no exceder el límite de condición IN en Dataverse, y encadena los streams.
-    // ─────────────────────────────────────────────────────────────────────────
-    private async IAsyncEnumerable<AuditExportRow> StreamAllChunksAsync(
-        ExtractionRequest request,
-        IReadOnlyList<Guid> objectIds,
-        IProgress<string>? progress,
-        Action<int> updateCount,
-        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
-    {
-        const int ChunkSize = 500;
-        var chunks      = ChunkList(objectIds, ChunkSize);
-        var totalChunks = chunks.Count;
-        var totalSoFar  = 0;
-
-        for (var ci = 0; ci < totalChunks && totalSoFar < request.MaxRecords; ci++)
-        {
-            progress?.Report($"Procesando lote {ci + 1}/{totalChunks} ({chunks[ci].Count} registros de la Vista)...");
-
-            var remaining    = request.MaxRecords - totalSoFar;
-            var chunkRequest = new ExtractionRequest
-            {
-                EntityName         = request.EntityName,
-                MaxRecords         = remaining,
-                SelectedDateRange  = request.SelectedDateRange,
-                SelectedDateFrom   = request.SelectedDateFrom,
-                SelectedDateTo     = request.SelectedDateTo,
-                IsFullDay          = request.IsFullDay,
-                SelectedUser       = request.SelectedUser,
-                SelectedOperation  = request.SelectedOperation,
-                SelectedOperations = request.SelectedOperations,
-                SelectedActions    = request.SelectedActions,
-                SelectedAttributes = request.SelectedAttributes,
-                SearchValue        = request.SearchValue,
-                RecordId           = request.RecordId,
-                StartDate          = request.StartDate,
-                EndDate            = request.EndDate
-            };
-
-            var chunkWritten = 0;
-            await foreach (var row in StreamRowsAsync(chunkRequest, chunks[ci], progress,
-                count => { chunkWritten = count; updateCount(totalSoFar + count); },
-                cancellationToken))
-            {
-                yield return row;
-            }
-            totalSoFar += chunkWritten;
-        }
-    }
-
-    private static List<IReadOnlyList<Guid>> ChunkList(IReadOnlyList<Guid> source, int chunkSize)
-    {
-        var result = new List<IReadOnlyList<Guid>>();
-        for (var i = 0; i < source.Count; i += chunkSize)
-            result.Add(source.Skip(i).Take(chunkSize).ToList());
-        return result;
     }
 
     private string BuildRecordUrl(string logicalName, string recordId)
