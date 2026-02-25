@@ -320,22 +320,30 @@ public class AuditService : IAuditService
 
             var remaining = request.MaxRecords - totalWritten;
             var pageSize = Math.Min(MaxDataversePageSize, remaining);
-            var query = _queryBuilderService.BuildQueryExpression(filters, pageNumber, pagingCookie, pageSize);
 
             progress?.Report($"Consultando página {pageNumber}...");
 
             _currentProgress = progress;
-            var response = await ExecuteWithRetryAsync(
-                () => Task.Run(() => _serviceClient!.RetrieveMultiple(query), cancellationToken),
-                cancellationToken);
-            if (response.Entities.Count == 0)
+            var page = await FetchPageWithFallbackAsync(
+                filters, pageNumber, pagingCookie, pageSize, progress, cancellationToken);
+
+            if (page.Entities.Count == 0)
             {
-                yield break;
+                if (!page.MoreRecords)
+                {
+                    yield break;
+                }
+                // La página quedó vacía (todos los registros eran corruptos)
+                // pero hay más páginas: avanzamos sin detener el proceso.
+                moreRecords = true;
+                pageNumber++;
+                pagingCookie = page.NextPagingCookie;
+                continue;
             }
 
             var startIndex = totalWritten + 1;
 
-            foreach (var entity in response.Entities)
+            foreach (var entity in page.Entities)
             {
                 AuditExportRow? row = null;
                 bool rowFaulted = false;
@@ -489,14 +497,127 @@ public class AuditService : IAuditService
 
             progress?.Report($"Escribiendo registros {startIndex}-{totalWritten}...");
 
-            moreRecords = response.MoreRecords && totalWritten < request.MaxRecords;
+            moreRecords = page.MoreRecords && totalWritten < request.MaxRecords;
             if (moreRecords)
             {
                 pageNumber++;
-                pagingCookie = response.PagingCookie;
+                pagingCookie = page.NextPagingCookie;
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // FALLBACK PAGING
+    // Encapsula el resultado de una página (entidades + cursor + flag MoreRecords).
+    // ─────────────────────────────────────────────────────────────────────────
+    private readonly record struct PageResult(
+        IReadOnlyList<Entity> Entities,
+        string? NextPagingCookie,
+        bool MoreRecords);
+
+    /// <summary>
+    /// Intenta obtener una página completa de registros de auditoría usando
+    /// <see cref="RetrieveMultipleRequest"/> vía Execute (evita validaciones del
+    /// MetadataCache). Si la página falla por un registro corrupto, activa el
+    /// modo de rescate: itera registro a registro (pageSize=1) para recuperar
+    /// los registros sanos e ignorar los corruptos sin abortar la extracción.
+    /// </summary>
+    private async Task<PageResult> FetchPageWithFallbackAsync(
+        AuditQueryFilters filters,
+        int pageNumber,
+        string? pagingCookie,
+        int pageSize,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        // ── RUTA PRINCIPAL ──────────────────────────────────────────────────────────
+        // Usando Execute(RetrieveMultipleRequest) en lugar de RetrieveMultiple:
+        // en algunas versiones del SDK, Execute omite las validaciones agresivas
+        // del MetadataCache del cliente que causan FaultException en entidades
+        // con LogicalNames corruptos (ej. "Concepto Factura" con espacios).
+        var query = _queryBuilderService.BuildQueryExpression(
+            filters, pageNumber, pagingCookie, pageSize);
+        try
+        {
+            var ec = await ExecuteWithRetryAsync(
+                () => Task.Run(() =>
+                {
+                    var req = new RetrieveMultipleRequest { Query = query };
+                    var res = (RetrieveMultipleResponse)_serviceClient!.Execute(req);
+                    return res.EntityCollection;
+                }, cancellationToken),
+                cancellationToken);
+
+            return new PageResult(
+                ec.Entities.Cast<Entity>().ToList(),
+                ec.PagingCookie,
+                ec.MoreRecords);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception pageEx)
+        {
+            // ── RUTA DE RESCATE: Fallback Paging (1 registro por consulta) ────
+            // La página completa falló (típicamente por MetadataCache corrupto).
+            // Iteramos registro a registro para recuperar los sanos y saltar
+            // los corruptos de forma silenciosa, preservando la paginación.
+            progress?.Report(
+                $"[Rescate] Página {pageNumber} falló ({pageEx.GetType().Name}). " +
+                $"Activando modo 1 registro/consulta ({pageSize} intentos)...");
+            System.Diagnostics.Debug.WriteLine(
+                $"[FetchPageWithFallbackAsync] Página {pageNumber} falló: " +
+                $"{pageEx.GetType().Name} – {pageEx.Message}");
+
+            var recovered   = new List<Entity>(pageSize);
+            string? subCookie  = pagingCookie;
+            bool   subMore     = true;
+            int    subPage     = pageNumber;
+            int    attempts    = 0;
+
+            while (subMore && attempts < pageSize && !cancellationToken.IsCancellationRequested)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var subQuery = _queryBuilderService.BuildQueryExpression(
+                    filters, subPage, subCookie, 1);
+                try
+                {
+                    var subEc = await Task.Run(() =>
+                    {
+                        var req = new RetrieveMultipleRequest { Query = subQuery };
+                        var res = (RetrieveMultipleResponse)_serviceClient!.Execute(req);
+                        return res.EntityCollection;
+                    }, cancellationToken);
+
+                    if (subEc.Entities.Count > 0)
+                    {
+                        recovered.Add(subEc.Entities[0]);
+                    }
+
+                    subMore   = subEc.MoreRecords;
+                    subCookie = subEc.PagingCookie;
+                    subPage++;
+                    attempts++;
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception subEx)
+                {
+                    // Este registro individual está corrupto: se ignora con continue.
+                    // Sin un cookie válido no podemos avanzar el cursor de paginación,
+                    // por lo que detenemos el sub-bucle y el flujo principal continua
+                    // desde el último cursor válido obtenido.
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[FetchPageWithFallbackAsync] Registro {attempts + 1} ignorado: " +
+                        $"{subEx.GetType().Name} – {subEx.Message}");
+                    progress?.Report(
+                        $"  R{subPage}: registro corrupto ignorado. Reanudando desde cursor anterior...");
+                    break;
+                }
             }
 
-            response.Entities.Clear();
+            return new PageResult(
+                recovered,
+                subCookie,
+                subMore && attempts >= pageSize);
         }
     }
 
