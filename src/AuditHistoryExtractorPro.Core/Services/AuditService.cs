@@ -380,16 +380,58 @@ public class AuditService : IAuditService
                 if (stopped || totalWritten >= request.MaxRecords) break;
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // BuildDetailRowsAsync es indestructible: todos los errores SDK se
-                // capturan dentro y producen filas de diagnóstico en lugar de lanzar.
-                await foreach (var detailRow in BuildDetailRowsAsync(entity, selectedAttributes, cancellationToken))
+                // ── Segunda línea de defensa: las filas se recopilan en lista dentro
+                // del try-catch, y se emiten fuera de él.
+                // En C# yield return no está permitido dentro de un bloque try-catch,
+                // por lo que este patrón buffer→emit garantiza que NINGUNA fila se
+                // pierda aunque BuildDetailRowsAsync lance inesperadamente.
+                var entityRows = new List<AuditExportRow>(4);
+                try
                 {
-                    if (!MatchesSearchValue(detailRow, searchValue))
-                        continue;
+                    await foreach (var detailRow in BuildDetailRowsAsync(entity, selectedAttributes, cancellationToken))
+                    {
+                        if (MatchesSearchValue(detailRow, searchValue))
+                            entityRows.Add(detailRow);
+                    }
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception entityEx)
+                {
+                    var rawAuditId = entity.Contains("auditid")
+                        ? entity.GetAttributeValue<Guid>("auditid").ToString()
+                        : entity.Id.ToString();
+                    _logger.LogWarning(entityEx,
+                        "[StreamRows] Error no capturado en BuildDetailRowsAsync auditid={AuditId} — emitiendo fila de rescate",
+                        rawAuditId);
+                    if (entityRows.Count == 0)
+                    {
+                        entityRows.Add(new AuditExportRow
+                        {
+                            AuditId       = rawAuditId,
+                            CreatedOn     = string.Empty,
+                            EntityName    = "[Error Interno — ver log]",
+                            RecordId      = string.Empty,
+                            LogicalName   = string.Empty,
+                            RecordUrl     = string.Empty,
+                            ActionCode    = 0,
+                            ActionName    = "[Error Interno]",
+                            UserId        = string.Empty,
+                            UserName      = "[Error Interno]",
+                            RealActor     = "[Error Interno]",
+                            TransactionId = string.Empty,
+                            ChangedField  = "[Error Interno]",
+                            OldValue      = "[Error al mapear — ver log]",
+                            NewValue      = $"[{entityEx.GetType().Name}: {entityEx.Message}]"
+                        });
+                    }
+                }
 
+                // Emitir fuera del bloque try-catch (yield not allowed in try-catch in C#).
+                foreach (var row in entityRows)
+                {
                     totalWritten++;
                     updateCount(totalWritten);
-                    yield return detailRow;
+                    yield return row;
 
                     if (totalWritten >= request.MaxRecords)
                     {
@@ -397,6 +439,8 @@ public class AuditService : IAuditService
                         break;
                     }
                 }
+
+                if (stopped) break;
             }
             if (stopped) yield break;
 
@@ -654,107 +698,163 @@ public class AuditService : IAuditService
         var userIdStr    = userRef?.Id.ToString() ?? string.Empty;
         var recordUrl    = BuildRecordUrl(logicalName, recordId);
 
-        // Resolución de usuario
-        var userName = await ResolveUserAsync(userRef, cancellationToken);
-        var realActor = await ResolveRealActorAsync(userRef, callingUserRef, userName, cancellationToken);
+        // ── Buffer de filas: se rellenan en el try y se emiten SIEMPRE al final ──
+        // Garantía estructural: por más que falle la resolución de metadatos,
+        // Lookups, traducciones de OptionSet, etc., la línea
+        //   foreach (var row in rows) yield return row
+        // se ejecuta SIEMPRE — ningún registro descargado se descarta.
+        var rows = new List<AuditExportRow>(4);
 
-        // ── RetrieveAuditDetailsRequest: obtener OldValue/NewValue reales ────────
-        AttributeAuditDetail? detail = null;
         try
         {
-            if (auditId != Guid.Empty && _serviceClient is not null)
+            // Resolución de usuario
+            var userName  = await ResolveUserAsync(userRef, cancellationToken);
+            var realActor = await ResolveRealActorAsync(userRef, callingUserRef, userName, cancellationToken);
+
+            // ── RetrieveAuditDetailsRequest: obtener OldValue/NewValue reales ─────
+            AttributeAuditDetail? detail = null;
+            try
             {
-                var detailReq  = new RetrieveAuditDetailsRequest { AuditId = auditId };
-                var detailResp = (RetrieveAuditDetailsResponse)await Task.Run(
-                    () => _serviceClient.Execute(detailReq), cancellationToken);
-                detail = detailResp.AuditDetail as AttributeAuditDetail;
+                if (auditId != Guid.Empty && _serviceClient is not null)
+                {
+                    var detailReq  = new RetrieveAuditDetailsRequest { AuditId = auditId };
+                    var detailResp = (RetrieveAuditDetailsResponse)await Task.Run(
+                        () => _serviceClient.Execute(detailReq), cancellationToken);
+                    detail = detailResp.AuditDetail as AttributeAuditDetail;
+                }
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "[BuildDetailRows] RetrieveAuditDetailsRequest falló auditid={AuditId} — usando fallback changedata",
+                    auditId);
+            }
+
+            if (detail is not null)
+            {
+                // ── Recopilar todos los atributos cambiados ──────────────────────
+                var changedAttrs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (detail.OldValue?.Attributes is { Count: > 0 } oldA)
+                    foreach (var k in oldA.Keys) changedAttrs.Add(k);
+                if (detail.NewValue?.Attributes is { Count: > 0 } newA)
+                    foreach (var k in newA.Keys) changedAttrs.Add(k);
+
+                // Aplicar filtro de atributos seleccionados por el usuario
+                if (selectedAttributes.Count > 0)
+                    changedAttrs.IntersectWith(selectedAttributes);
+
+                if (changedAttrs.Count == 0)
+                {
+                    // Evento sin campos detallados (Create sin tracking, etc.)
+                    rows.Add(new AuditExportRow
+                    {
+                        AuditId = auditIdStr, CreatedOn = createdOnStr, EntityName = logicalName,
+                        RecordId = recordId, LogicalName = logicalName, RecordUrl = recordUrl,
+                        ActionCode = actionCode, ActionName = GetOperationName(actionCode),
+                        UserId = userIdStr, UserName = userName, RealActor = realActor,
+                        TransactionId = txIdStr, ChangedField = string.Empty,
+                        OldValue = string.Empty, NewValue = string.Empty
+                    });
+                }
+                else
+                {
+                    // Una fila por cada atributo cambiado
+                    foreach (var attrName in changedAttrs)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        var oldVal = TranslateAuditAttributeValue(attrName,
+                            detail.OldValue?.Contains(attrName) == true
+                                ? detail.OldValue.GetAttributeValue<object>(attrName) : null);
+                        var newVal = TranslateAuditAttributeValue(attrName,
+                            detail.NewValue?.Contains(attrName) == true
+                                ? detail.NewValue.GetAttributeValue<object>(attrName) : null);
+
+                        rows.Add(new AuditExportRow
+                        {
+                            AuditId = auditIdStr, CreatedOn = createdOnStr, EntityName = logicalName,
+                            RecordId = recordId, LogicalName = logicalName, RecordUrl = recordUrl,
+                            ActionCode = actionCode, ActionName = GetOperationName(actionCode),
+                            UserId = userIdStr, UserName = userName, RealActor = realActor,
+                            TransactionId = txIdStr, ChangedField = attrName,
+                            OldValue = oldVal, NewValue = newVal
+                        });
+                    }
+                }
+            }
+            else
+            {
+                // ── Fallback: parsear el XML de changedata ───────────────────────
+                var changeData = SafeGet<string>(auditEntity, "changedata") ?? string.Empty;
+                var parsed     = ParseChangeData(changeData);
+
+                if (selectedAttributes.Count > 0
+                    && !string.IsNullOrEmpty(parsed.field)
+                    && !selectedAttributes.Contains(parsed.field))
+                {
+                    // Campo excluido por filtro de atributos — no se descarta
+                    // el registro; simplemente no produce fila (filtro explícito del usuario).
+                }
+                else
+                {
+                    var oldVal = string.IsNullOrEmpty(parsed.oldValue) ? string.Empty
+                        : await SafeResolveNameIfReferenceAsync(parsed.oldValue, parsed.field, cancellationToken);
+                    var newVal = string.IsNullOrEmpty(parsed.newValue) ? string.Empty
+                        : await SafeResolveNameIfReferenceAsync(parsed.newValue, parsed.field, cancellationToken);
+
+                    rows.Add(new AuditExportRow
+                    {
+                        AuditId = auditIdStr, CreatedOn = createdOnStr, EntityName = logicalName,
+                        RecordId = recordId, LogicalName = logicalName, RecordUrl = recordUrl,
+                        ActionCode = actionCode, ActionName = GetOperationName(actionCode),
+                        UserId = userIdStr, UserName = userName, RealActor = realActor,
+                        TransactionId = txIdStr, ChangedField = parsed.field,
+                        OldValue = oldVal, NewValue = newVal
+                    });
+                }
             }
         }
         catch (OperationCanceledException) { throw; }
-        catch (Exception ex)
+        catch (Exception outerEx)
         {
-            _logger.LogWarning(ex,
-                "[BuildDetailRows] RetrieveAuditDetailsRequest falló auditid={AuditId} — usando fallback changedata",
-                auditId);
+            // Metadatos rotos, Lookup eliminado, excepción de traducción, etc.
+            // Si el try ya añadió filas parciales las conservamos; si está vacío
+            // emitimos una fila de diagnóstico para que el registro sea VISIBLE.
+            _logger.LogWarning(outerEx,
+                "[BuildDetailRows] Error inesperado procesando auditid={AuditId} entidad='{Entity}' — emitiendo fila de diagnóstico",
+                auditId, logicalName);
+
+            if (rows.Count == 0)
+            {
+                rows.Add(new AuditExportRow
+                {
+                    AuditId       = auditIdStr,
+                    CreatedOn     = createdOnStr,
+                    EntityName    = string.IsNullOrEmpty(logicalName) ? "[Entidad Desconocida]" : logicalName,
+                    RecordId      = recordId,
+                    LogicalName   = logicalName,
+                    RecordUrl     = string.Empty,
+                    ActionCode    = actionCode,
+                    ActionName    = GetOperationName(actionCode),
+                    UserId        = string.Empty,
+                    UserName      = "[Metadatos No Disponibles]",
+                    RealActor     = "[Metadatos No Disponibles]",
+                    TransactionId = txIdStr,
+                    ChangedField  = "[Error al mapear campos]",
+                    OldValue      = "[Metadatos Rotos — ver log]",
+                    NewValue      = $"[{outerEx.GetType().Name}]"
+                });
+            }
         }
 
-        if (detail is not null)
+        // ── Garantía de emisión ─────────────────────────────────────────────────
+        // Esta sección se ejecuta SIEMPRE, independientemente de lo que ocurrió
+        // en el bloque try-catch. yield return no está permitido en catch, por lo
+        // que la emisión ocurre aquí, una vez que el flujo de control es seguro.
+        foreach (var row in rows)
         {
-            // ── Recopilar todos los atributos cambiados ──────────────────────────
-            var changedAttrs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (detail.OldValue?.Attributes is { Count: > 0 } oldA)
-                foreach (var k in oldA.Keys) changedAttrs.Add(k);
-            if (detail.NewValue?.Attributes is { Count: > 0 } newA)
-                foreach (var k in newA.Keys) changedAttrs.Add(k);
-
-            // Aplicar filtro de atributos seleccionados por el usuario
-            if (selectedAttributes.Count > 0)
-                changedAttrs.IntersectWith(selectedAttributes);
-
-            if (changedAttrs.Count == 0)
-            {
-                // Evento de auditoría sin campos detallados (ej. Create sin tracking)
-                yield return new AuditExportRow
-                {
-                    AuditId = auditIdStr, CreatedOn = createdOnStr, EntityName = logicalName,
-                    RecordId = recordId, LogicalName = logicalName, RecordUrl = recordUrl,
-                    ActionCode = actionCode, ActionName = GetOperationName(actionCode),
-                    UserId = userIdStr, UserName = userName, RealActor = realActor,
-                    TransactionId = txIdStr, ChangedField = string.Empty,
-                    OldValue = string.Empty, NewValue = string.Empty
-                };
-                yield break;
-            }
-
-            // Una fila por cada atributo cambiado
-            foreach (var attrName in changedAttrs)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var oldVal = TranslateAuditAttributeValue(attrName,
-                    detail.OldValue?.Contains(attrName) == true
-                        ? detail.OldValue.GetAttributeValue<object>(attrName) : null);
-                var newVal = TranslateAuditAttributeValue(attrName,
-                    detail.NewValue?.Contains(attrName) == true
-                        ? detail.NewValue.GetAttributeValue<object>(attrName) : null);
-
-                yield return new AuditExportRow
-                {
-                    AuditId = auditIdStr, CreatedOn = createdOnStr, EntityName = logicalName,
-                    RecordId = recordId, LogicalName = logicalName, RecordUrl = recordUrl,
-                    ActionCode = actionCode, ActionName = GetOperationName(actionCode),
-                    UserId = userIdStr, UserName = userName, RealActor = realActor,
-                    TransactionId = txIdStr, ChangedField = attrName,
-                    OldValue = oldVal, NewValue = newVal
-                };
-            }
-        }
-        else
-        {
-            // ── Fallback: parsear el XML de changedata ───────────────────────────
-            var changeData = SafeGet<string>(auditEntity, "changedata") ?? string.Empty;
-            var parsed     = ParseChangeData(changeData);
-
-            if (selectedAttributes.Count > 0
-                && !string.IsNullOrEmpty(parsed.field)
-                && !selectedAttributes.Contains(parsed.field))
-            {
-                yield break; // filtrado por atributos seleccionados
-            }
-
-            var oldVal = string.IsNullOrEmpty(parsed.oldValue) ? string.Empty
-                : await SafeResolveNameIfReferenceAsync(parsed.oldValue, parsed.field, cancellationToken);
-            var newVal = string.IsNullOrEmpty(parsed.newValue) ? string.Empty
-                : await SafeResolveNameIfReferenceAsync(parsed.newValue, parsed.field, cancellationToken);
-
-            yield return new AuditExportRow
-            {
-                AuditId = auditIdStr, CreatedOn = createdOnStr, EntityName = logicalName,
-                RecordId = recordId, LogicalName = logicalName, RecordUrl = recordUrl,
-                ActionCode = actionCode, ActionName = GetOperationName(actionCode),
-                UserId = userIdStr, UserName = userName, RealActor = realActor,
-                TransactionId = txIdStr, ChangedField = parsed.field,
-                OldValue = oldVal, NewValue = newVal
-            };
+            cancellationToken.ThrowIfCancellationRequested();
+            yield return row;
         }
     }
 
