@@ -21,7 +21,9 @@ public partial class App : System.Windows.Application
 
 		// ── SERILOG: configuración de archivo rodante ─────────────────────────
 		var logDir = System.IO.Path.Combine(
-			AppDomain.CurrentDomain.BaseDirectory, "Logs");
+			Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+			"AuditHistoryExtractorPro",
+			"Logs");
 		System.IO.Directory.CreateDirectory(logDir);
 
 		Log.Logger = new LoggerConfiguration()
@@ -34,7 +36,7 @@ public partial class App : System.Windows.Application
 				outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
 			.CreateLogger();
 
-		Log.Information("=== AuditHistoryExtractorPro iniciado ===");
+		Log.Information("=== AuditHistoryExtractorPro iniciado === Logs en: {LogDir}", logDir);
 		// ─────────────────────────────────────────────────────────────────────
 
 		// ── MANEJADORES GLOBALES DE EXCEPCIONES NO CONTROLADAS ───────────────
