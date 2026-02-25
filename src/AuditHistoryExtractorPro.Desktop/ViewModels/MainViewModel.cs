@@ -297,6 +297,7 @@ public partial class MainViewModel : ObservableObject
         IsBusy = true;
         ProgressValue = 10;
         StatusMessage = $"Cargando vista previa (máx. {PreviewLimit} registros)...";
+        // Clear en el UI thread ANTES de lanzar el hilo de fondo.
         PreviewRecords.Clear();
 
         try
@@ -319,26 +320,51 @@ public partial class MainViewModel : ObservableObject
                 SelectedView       = SelectedView
             };
 
-            // Ejecutar en hilo de fondo para no bloquear el UI thread.
-            // GetPreviewRowsAsync puede tardar varios segundos cuando la entidad
-            // tiene metadatos corruptos en Dataverse; si corre en el UI thread
-            // la ventana queda congelada hasta que finaliza.
+            // Ejecutar en hilo de fondo — UI sigue respondiendo.
             var rows = await Task.Run(
                 () => _auditService.GetPreviewRowsAsync(request, PreviewLimit));
 
-            // Agregar filas a la ObservableCollection en el UI thread.
-            // WPF lanza NotSupportedException si se modifica un ObservableCollection
-            // desde un hilo de fondo (cross-thread operation).
-            var dispatcher = System.Windows.Application.Current.Dispatcher;
-            foreach (var row in rows)
+            // ── DIAGNÓSTICO: conteo estricto antes de tocar la UI ────────────
+            var count = rows?.Count ?? 0;
+            _logger.LogInformation(
+                "[PreviewAsync] GetPreviewRowsAsync devolvió {Count} filas para entidad='{Entity}'",
+                count, EntityName);
+
+            if (count == 0)
             {
-                dispatcher.Invoke(() => PreviewRecords.Add(row));
+                ProgressValue = 100;
+                StatusMessage = "Vista previa: no se encontraron registros con los filtros actuales.";
+                MessageBox.Show(
+                    "El servicio devolvió 0 registros de auditoría para los filtros seleccionados.\n\n" +
+                    "Posibles causas:\n" +
+                    "  • El rango de fechas no coincide con registros existentes.\n" +
+                    "  • La Vista seleccionada no devuelve registros.",
+                    "Sin Resultados",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
             }
 
+            MessageBox.Show(
+                $"Se descargaron {count} registros del servicio.\nActualizando interfaz...",
+                "Datos Recibidos",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+
+            // ── LLENADO DE ObservableCollection ──────────────────────────────
+            // Regla WPF: NO reasignar PreviewRecords = new ObservableCollection<>()
+            // (rompe el binding XAML). Usar Clear() + Add() en el UI thread.
+            // Después del await estamos de vuelta en el SynchronizationContext
+            // original (UI thread), así que un único Dispatcher.Invoke basta.
+            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            {
+                PreviewRecords.Clear();
+                foreach (var row in rows!)
+                    PreviewRecords.Add(row);
+            });
+
             ProgressValue = 100;
-            StatusMessage = PreviewRecords.Count == 0
-                ? "Vista previa: no se encontraron registros con los filtros actuales."
-                : $"Vista previa: {PreviewRecords.Count} de los primeros {PreviewLimit} registros. Revisa los datos y pulsa Exportar.";
+            StatusMessage = $"Vista previa: {PreviewRecords.Count} registros. Revisa los datos y pulsa Exportar.";
         }
         catch (Exception ex)
         {
