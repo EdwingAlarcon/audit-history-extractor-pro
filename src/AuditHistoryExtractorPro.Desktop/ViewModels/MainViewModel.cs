@@ -746,20 +746,32 @@ public partial class MainViewModel : ObservableObject
 
     private IReadOnlyList<int> GetSelectedOperations()
     {
-        return OperationsList
+        var selected = OperationsList
             .Where(item => item.IsSelected)
             .Select(item => (int)item.Value)
             .Distinct()
             .ToList();
+        // Bypass: ninguno o todos seleccionados → sin filtro de operación en backend.
+        // Esto garantiza que "Seleccionar Todo" no excluya operaciones de sistema
+        // con códigos fuera del enum (ej. códigos de Dataverse no mapados).
+        return (selected.Count == 0 || selected.Count == OperationsList.Count)
+            ? Array.Empty<int>()
+            : selected;
     }
 
     private IReadOnlyList<int> GetSelectedActions()
     {
-        return ActionsList
+        var selected = ActionsList
             .Where(item => item.IsSelected)
             .Select(item => (int)item.Value)
             .Distinct()
             .ToList();
+        // Bypass: ninguno o todos seleccionados → sin filtro de acción en backend.
+        // Garantiza paridad con la app original: si el usuario no filtra,
+        // Dataverse devuelve TODAS las acciones (Create, Update, estado, merge, etc.).
+        return (selected.Count == 0 || selected.Count == ActionsList.Count)
+            ? Array.Empty<int>()
+            : selected;
     }
 
     private IReadOnlyList<string> GetSelectedAttributes()

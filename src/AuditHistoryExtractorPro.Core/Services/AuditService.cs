@@ -351,8 +351,8 @@ public class AuditService : IAuditService
     {
         var totalWritten = 0;
         var pageNumber = 1;
-        var moreRecords = true;
         string? pagingCookie = null;
+        var hasMore = false;
 
         var filters = new AuditQueryFilters
         {
@@ -378,39 +378,44 @@ public class AuditService : IAuditService
         var selectedAttributes = new HashSet<string>(request.SelectedAttributes, StringComparer.OrdinalIgnoreCase);
         var searchValue = request.SearchValue?.Trim() ?? string.Empty;
 
-        while (moreRecords && !cancellationToken.IsCancellationRequested && totalWritten < request.MaxRecords)
+        // ── Paginación do-while: el cursor (pagingCookie / pageNumber) se avanza SIEMPRE
+        // antes de procesar entidades para garantizar que una interrupción a medio-página
+        // no reutilice un cookie stale. El tamaño de página es siempre MaxDataversePageSize
+        // (5000) — desacoplado del presupuesto de filas (MaxRecords), que solo controla
+        // el límite de filas de SALIDA, no cuántos registros de auditoría se descargan.
+        do
         {
             cancellationToken.ThrowIfCancellationRequested();
-
-            var remaining = request.MaxRecords - totalWritten;
-            var pageSize = Math.Min(MaxDataversePageSize, remaining);
+            if (totalWritten >= request.MaxRecords) break;
 
             progress?.Report($"Consultando página {pageNumber}...");
 
             _currentProgress = progress;
             var page = await FetchPageWithFallbackAsync(
-                filters, pageNumber, pagingCookie, pageSize, progress, cancellationToken);
+                filters, pageNumber, pagingCookie, MaxDataversePageSize, progress, cancellationToken);
+
+            // Avanzar cursor SIEMPRE — antes de cualquier break/continue.
+            hasMore      = page.MoreRecords;
+            pagingCookie = page.NextPagingCookie;
+
+            _logger.LogInformation(
+                "[StreamRows] Página {Page} recuperada | Brutos={Raw} | MoreRecords={More} | TotalFilasAcum={Total}",
+                pageNumber, page.Entities.Count, hasMore, totalWritten);
+
+            var currentPage = pageNumber;
+            pageNumber++;
 
             if (page.Entities.Count == 0)
             {
-                if (!page.MoreRecords)
-                {
-                    yield break;
-                }
-                // La página quedó vacía (todos los registros eran corruptos)
-                // pero hay más páginas: avanzamos sin detener el proceso.
-                moreRecords = true;
-                pageNumber++;
-                pagingCookie = page.NextPagingCookie;
+                // Página vacía (posible fallback 1×1 que saltó todos los registros).
+                // El while-condition manejará la terminación si hasMore=false.
                 continue;
             }
-
-            var startIndex = totalWritten + 1;
 
             var intersectionProgress = progress is null
                 ? null
                 : new Progress<int>(matched =>
-                    progress.Report($"Intersección en memoria: {matched} coincidencias acumuladas en página {pageNumber}..."));
+                    progress.Report($"Intersección en memoria: {matched} coincidencias en página {currentPage}..."));
 
             var (matchedEntities, metrics) = await _auditProcessingService.IntersectPageAsync(
                 page.Entities,
@@ -418,16 +423,14 @@ public class AuditService : IAuditService
                 intersectionProgress,
                 cancellationToken);
 
-            _logger.LogDebug(
-                "[StreamRows] Intersección página {PageNumber}: Processed={Processed} Matched={Matched} Discarded={Discarded} Time={ElapsedMs}ms Batches={Batches}",
-                pageNumber,
-                metrics.Processed,
-                metrics.Matched,
-                metrics.Discarded,
-                metrics.ElapsedMilliseconds,
-                metrics.Batches);
+            // ── Telemetría de paridad: Brutos / Pasaron HashSet / Descartados / TotalAcum ──
+            _logger.LogInformation(
+                "[StreamRows] Pág {Page} | Brutos={Raw} | Pasaron HashSet={Matched} | Descartados={Discarded} | TotalFilasAcum={Total}",
+                currentPage, page.Entities.Count, metrics.Matched, metrics.Discarded, totalWritten);
 
             // ── Paso 3: Iterar cada entidad → llamar RetrieveAuditDetailsRequest ─────
+            // No-destructivo: múltiples registros de auditoría para el mismo objectid
+            // pasan todos — el HashSet actúa solo como validador, no como deduplicador.
             var stopped = false;
             foreach (var entity in matchedEntities)
             {
@@ -498,15 +501,9 @@ public class AuditService : IAuditService
             }
             if (stopped) yield break;
 
-            progress?.Report($"Escribiendo registros {startIndex}-{totalWritten}...");
-
-            moreRecords = page.MoreRecords && totalWritten < request.MaxRecords;
-            if (moreRecords)
-            {
-                pageNumber++;
-                pagingCookie = page.NextPagingCookie;
-            }
+            progress?.Report($"Página {currentPage} procesada. Total acumulado: {totalWritten} filas.");
         }
+        while (hasMore && totalWritten < request.MaxRecords && !cancellationToken.IsCancellationRequested);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
