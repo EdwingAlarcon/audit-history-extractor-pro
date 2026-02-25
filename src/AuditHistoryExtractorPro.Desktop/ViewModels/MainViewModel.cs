@@ -299,25 +299,8 @@ public partial class MainViewModel : ObservableObject
             OutputPath = result.OutputFilePath;
             StatusMessage = result.Message;
             ProgressValue = 100;
-
-            PreviewRecords.Clear();
-            PreviewRecords.Add(new AuditExportRow
-            {
-                AuditId = "N/A",
-                CreatedOn = DateTime.UtcNow.ToString("O"),
-                EntityName = EntityName,
-                RecordId = "N/A",
-                LogicalName = EntityName,
-                RecordUrl = string.Empty,
-                ActionCode = 0,
-                ActionName = "Export",
-                UserId = SelectedUser?.Id.ToString() ?? string.Empty,
-                UserName = SelectedUser?.Name ?? string.Empty,
-                TransactionId = "N/A",
-                ChangedField = "Archivo generado",
-                OldValue = string.Empty,
-                NewValue = result.OutputFilePath
-            });
+            // ── La exportación NO toca PreviewRecords.
+            // La Vista Previa es un estado independiente del motor de exportación.
         }
         catch (Exception ex)
         {
