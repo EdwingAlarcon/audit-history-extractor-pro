@@ -417,6 +417,39 @@ public partial class MainViewModel : ObservableObject
         _ = LoadEntityAttributesAsync(value.LogicalName);
     }
 
+    // Guard: si alguien escribe manualmente en el ComboBox editable (o cualquier
+    // otra ruta establece EntityName), detectamos si el valor es un DisplayName
+    // en lugar del LogicalName y lo corregimos automáticamente.
+    // Ejemplo: usuario teclea "Concepto Factura" → se convierte a "new_conceptofactura".
+    partial void OnEntityNameChanged(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || AvailableEntities.Count == 0)
+            return;
+
+        // Si el valor ya es un LogicalName conocido, no hacemos nada.
+        var byLogical = AvailableEntities.FirstOrDefault(e =>
+            string.Equals(e.LogicalName, value, StringComparison.OrdinalIgnoreCase));
+        if (byLogical is not null)
+        {
+            // Sincroniza SelectedEntity si es distinto (sin recursión: ya es LogicalName).
+            if (!ReferenceEquals(SelectedEntity, byLogical))
+                SelectedEntity = byLogical;
+            return;
+        }
+
+        // Si el valor coincide con un DisplayName, reemplazar por el LogicalName.
+        var byDisplay = AvailableEntities.FirstOrDefault(e =>
+            string.Equals(e.DisplayName, value, StringComparison.OrdinalIgnoreCase));
+        if (byDisplay is not null)
+        {
+            _logger.LogDebug(
+                "[OnEntityNameChanged] DisplayName '{DisplayName}' → LogicalName '{LogicalName}'",
+                value, byDisplay.LogicalName);
+            EntityName   = byDisplay.LogicalName;  // Re-entra, pero byLogical lo captura
+            SelectedEntity = byDisplay;
+        }
+    }
+
     partial void OnSelectedViewChanged(ViewDTO? value)
     {
         if (value is null)
