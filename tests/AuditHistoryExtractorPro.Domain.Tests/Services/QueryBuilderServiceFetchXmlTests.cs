@@ -52,4 +52,44 @@ public class QueryBuilderServiceFetchXmlTests
         Regex.Matches(fetchXml, "<condition attribute='action' operator='in'>", RegexOptions.IgnoreCase)
             .Count.Should().Be(1);
     }
+
+    [Fact]
+    public void BuildBaseAuditQuery_ShouldNotEmitInvalidConditions_WhenOptionalFiltersAreEmpty()
+    {
+        // Arrange
+        var service = new QueryBuilderService();
+        var filters = new AuditQueryFilters
+        {
+            EntityName = "10142",
+            SelectedDateRange = DateRangeFilter.Todo,
+            StartDate = null,
+            EndDate = null,
+            SelectedOperations = Array.Empty<int>(),
+            SelectedActions = Array.Empty<int>(),
+            SearchValue = string.Empty,
+            RecordId = string.Empty,
+            ObjectIds = Array.Empty<Guid>()
+        };
+
+        // Act
+        var fetchXml = service.BuildBaseAuditQuery(filters, pageNumber: 1, pageSize: 5000, pagingCookie: null);
+
+        // Assert
+        fetchXml.Should().Contain("<filter type='and'>");
+        fetchXml.Should().Contain("attribute='objecttypecode' operator='eq' value='10142'");
+
+        // No fechas cuando no hay rango explícito
+        fetchXml.Should().NotContain("attribute='createdon' operator='on-or-after'");
+        fetchXml.Should().NotContain("attribute='createdon' operator='on-or-before'");
+
+        // No condiciones inválidas o vacías
+        fetchXml.Should().NotContain("attribute='' ");
+        fetchXml.Should().NotContain("value='' ");
+        fetchXml.Should().NotContain("value='' />");
+
+        // Sin filtros opcionales, no deben aparecer bloques IN
+        fetchXml.Should().NotContain("<condition attribute='operation' operator='in'>");
+        fetchXml.Should().NotContain("<condition attribute='action' operator='in'>");
+        fetchXml.Should().NotContain("<condition attribute='objectid' operator='in'>");
+    }
 }
