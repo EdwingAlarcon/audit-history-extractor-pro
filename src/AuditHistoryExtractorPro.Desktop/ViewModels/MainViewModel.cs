@@ -4,6 +4,7 @@ using AuditHistoryExtractorPro.Desktop.Models;
 using AuditHistoryExtractorPro.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
@@ -18,6 +19,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IMetadataService _metadataService;
     private readonly IDataService _dataService;
     private readonly ConnectionManagerService _connectionManagerService;
+    private readonly ILogger<MainViewModel> _logger;
     private CancellationTokenSource? _userSearchCts;
 
     [ObservableProperty]
@@ -116,12 +118,14 @@ public partial class MainViewModel : ObservableObject
         IAuditService auditService,
         IMetadataService metadataService,
         IDataService dataService,
-        ConnectionManagerService connectionManagerService)
+        ConnectionManagerService connectionManagerService,
+        ILogger<MainViewModel> logger)
     {
         _auditService = auditService;
         _metadataService = metadataService;
         _dataService = dataService;
         _connectionManagerService = connectionManagerService;
+        _logger = logger;
 
         foreach (var operation in AuditMetadataService.GetAuditOperations())
         {
@@ -173,52 +177,12 @@ public partial class MainViewModel : ObservableObject
             ProgressValue = 0;
             StatusMessage = $"Error de conexión: {ex.Message}";
 
-            // ── LOG DE EMERGENCIA ────────────────────────────────────────────
-            try
-            {
-                var sb = new System.Text.StringBuilder();
-                sb.AppendLine("=====================================================");
-                sb.AppendLine($"AuditHistoryExtractorPro — Error de Conexión");
-                sb.AppendLine($"Fecha y Hora : {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-                sb.AppendLine("=====================================================");
-                sb.AppendLine();
-                sb.AppendLine($"[Mensaje]       {ex.Message}");
-                sb.AppendLine();
-                sb.AppendLine($"[StackTrace]");
-                sb.AppendLine(ex.StackTrace);
-
-                if (ex.InnerException is { } inner)
-                {
-                    sb.AppendLine();
-                    sb.AppendLine($"[InnerException.Mensaje]  {inner.Message}");
-                    sb.AppendLine($"[InnerException.StackTrace]");
-                    sb.AppendLine(inner.StackTrace);
-                }
-
-                var logPath = System.IO.Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
-                    "AuditApp_ErrorLog.txt");
-
-                System.IO.File.WriteAllText(logPath, sb.ToString(), System.Text.Encoding.UTF8);
-
-                System.Windows.MessageBox.Show(
-                    $"La conexión a Dataverse falló.\n\n" +
-                    $"Mensaje: {ex.Message}\n\n" +
-                    $"Se ha generado un log detallado en tu Escritorio:\n{logPath}",
-                    "Error de Conexión — AuditHistoryExtractorPro",
-                    System.Windows.MessageBoxButton.OK,
-                    System.Windows.MessageBoxImage.Error);
-            }
-            catch
-            {
-                // Si el propio log falla, mostramos al menos el MessageBox básico
-                System.Windows.MessageBox.Show(
-                    $"La conexión a Dataverse falló y no se pudo escribir el log de error.\n\nDetalle: {ex.Message}",
-                    "Error de Conexión",
-                    System.Windows.MessageBoxButton.OK,
-                    System.Windows.MessageBoxImage.Error);
-            }
-            // ────────────────────────────────────────────────────────────────
+            _logger.LogError(ex, "[ConnectAsync] Error de conexión a Dataverse");
+            System.Windows.MessageBox.Show(
+                $"La conexión a Dataverse falló.\n\nDetalle: {ex.Message}\n\nRevisa el log en: Logs/AuditExtractor-*.txt",
+                "Error de Conexión — AuditHistoryExtractorPro",
+                System.Windows.MessageBoxButton.OK,
+                System.Windows.MessageBoxImage.Error);
         }
         finally
         {
@@ -307,9 +271,9 @@ public partial class MainViewModel : ObservableObject
         {
             ProgressValue = 0;
             StatusMessage = $"Error durante extracción: {ex.Message}";
-            var logPath = WriteEmergencyLog("Exportación", ex);
+            _logger.LogError(ex, "[ExtractAsync] Error durante la exportación de '{EntityName}'", EntityName);
             MessageBox.Show(
-                $"Se produjo un error durante la exportación.\nSe ha generado un log de diagnóstico en:\n{logPath}",
+                $"Se produjo un error durante la exportación.\nRevisa el log en: Logs/AuditExtractor-*.txt\n\nDetalle: {ex.Message}",
                 "Error de Extracción",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
@@ -371,9 +335,9 @@ public partial class MainViewModel : ObservableObject
         {
             ProgressValue = 0;
             StatusMessage = $"Error en vista previa: {ex.Message}";
-            var logPath = WriteEmergencyLog("Vista Previa", ex);
+            _logger.LogError(ex, "[PreviewAsync] Error en vista previa de '{EntityName}'", EntityName);
             MessageBox.Show(
-                $"Se produjo un error durante la vista previa.\nSe ha generado un log de diagnóstico en:\n{logPath}",
+                $"Se produjo un error durante la vista previa.\nRevisa el log en: Logs/AuditExtractor-*.txt\n\nDetalle: {ex.Message}",
                 "Error de Vista Previa",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
@@ -385,51 +349,9 @@ public partial class MainViewModel : ObservableObject
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // HELPER: Log de emergencia físico en el Escritorio del usuario
+    // El log de emergencia ahora es manejado por Serilog (archivo rodante
+    // en Logs/AuditExtractor-*.txt). WriteEmergencyLog fue eliminado.
     // ─────────────────────────────────────────────────────────────────────────
-    private static string WriteEmergencyLog(string operacion, Exception ex)
-    {
-        try
-        {
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine("========================================================");
-            sb.AppendLine($"AuditHistoryExtractorPro — Error de {operacion}");
-            sb.AppendLine($"Fecha y Hora : {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-            sb.AppendLine("========================================================");
-            sb.AppendLine();
-            sb.AppendLine($"[Tipo de Excepción]  {ex.GetType().FullName}");
-            sb.AppendLine($"[Mensaje]            {ex.Message}");
-            sb.AppendLine();
-            sb.AppendLine("[StackTrace]");
-            sb.AppendLine(ex.StackTrace);
-
-            var inner = ex.InnerException;
-            var depth = 1;
-            while (inner != null)
-            {
-                sb.AppendLine();
-                sb.AppendLine($"[InnerException #{depth}]");
-                sb.AppendLine($"  Tipo    : {inner.GetType().FullName}");
-                sb.AppendLine($"  Mensaje : {inner.Message}");
-                sb.AppendLine("  StackTrace:");
-                sb.AppendLine(inner.StackTrace);
-                inner = inner.InnerException;
-                depth++;
-            }
-
-            var logPath = System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
-                "AuditApp_ExtractionError.txt");
-
-            System.IO.File.WriteAllText(logPath, sb.ToString(), System.Text.Encoding.UTF8);
-            return logPath;
-        }
-        catch
-        {
-            // Si falla el propio logger, no interrumpir el flujo de la aplicación.
-            return "(no se pudo escribir el log)";
-        }
-    }
 
     partial void OnUserSearchTextChanged(string value)
     {

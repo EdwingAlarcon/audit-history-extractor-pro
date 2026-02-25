@@ -3,6 +3,7 @@ using AuditHistoryExtractorPro.Domain.Interfaces;
 using AuditHistoryExtractorPro.Domain.ValueObjects;
 using DataverseServiceClient = Microsoft.PowerPlatform.Dataverse.Client.ServiceClient;
 using Microsoft.Crm.Sdk.Messages;
+using Microsoft.Extensions.Logging;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Messages;
 using Microsoft.Xrm.Sdk.Metadata;
@@ -24,6 +25,7 @@ public class AuditService : IAuditService
     private readonly QueryBuilderService _queryBuilderService;
     private readonly IExcelExportService _excelExportService;
     private readonly IMetadataTranslationService _metadataTranslationService;
+    private readonly Microsoft.Extensions.Logging.ILogger<AuditService> _logger;
     private const int MaxThrottlingRetries = 3;
     private const int ExtraRetryDelaySeconds = 1;
     private const int DefaultRetryAfterSeconds = 5;
@@ -47,12 +49,14 @@ public class AuditService : IAuditService
         AuthHelper authHelper,
         QueryBuilderService queryBuilderService,
         IExcelExportService excelExportService,
-        IMetadataTranslationService metadataTranslationService)
+        IMetadataTranslationService metadataTranslationService,
+        Microsoft.Extensions.Logging.ILogger<AuditService> logger)
     {
         _authHelper = authHelper;
         _queryBuilderService = queryBuilderService;
         _excelExportService = excelExportService;
         _metadataTranslationService = metadataTranslationService;
+        _logger = logger;
     }
 
     public async Task WarmupEntityMetadataAsync(string entityLogicalName, CancellationToken cancellationToken = default)
@@ -79,9 +83,9 @@ public class AuditService : IAuditService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine(
-                $"[WarmupEntityMetadataAsync] ADVERTENCIA: No se pudo pre-cargar " +
-                $"'{entityLogicalName}': {ex.GetType().Name} – {ex.Message}");
+            _logger.LogWarning(ex,
+                "[WarmupEntityMetadataAsync] No se pudo pre-cargar '{EntityName}'",
+                entityLogicalName);
             // continue: el warmup de esta entidad falla de forma silenciosa,
             // el resto del flujo de conexión continúa con normalidad.
         }
@@ -259,8 +263,9 @@ public class AuditService : IAuditService
             }
             catch (Exception metaEx)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[ExtractAuditHistoryAsync] Advertencia metadatos '{request.EntityName}': {metaEx.Message}");
+                _logger.LogWarning(metaEx,
+                    "[ExtractAuditHistoryAsync] Metadatos '{EntityName}' no disponibles; continuando sin pre-calentamiento",
+                    request.EntityName);
             }
 
             progress?.Report("Iniciando extracción de auditoría...");
@@ -437,6 +442,22 @@ public class AuditService : IAuditService
         // con LogicalNames corruptos (ej. "Concepto Factura" con espacios).
         var query = _queryBuilderService.BuildQueryExpression(
             filters, pageNumber, pagingCookie, pageSize);
+
+        // ── TELEMETRÍA: imprimir la consulta como FetchXML antes de enviarla ──────
+        try
+        {
+            var toFetchReq = new QueryExpressionToFetchXmlRequest { Query = query };
+            var toFetchRes = (QueryExpressionToFetchXmlResponse)_serviceClient!.Execute(toFetchReq);
+            _logger.LogDebug(
+                "[FetchPage] Pág={Page} PageSize={PageSize} FetchXML=\n{FetchXml}",
+                pageNumber, pageSize, toFetchRes.FetchXml);
+        }
+        catch (Exception telEx)
+        {
+            _logger.LogDebug(telEx, "[FetchPage] No se pudo convertir QueryExpression a FetchXML (solo diagnóstico)");
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
         try
         {
             var ec = await ExecuteWithRetryAsync(
@@ -463,9 +484,9 @@ public class AuditService : IAuditService
             progress?.Report(
                 $"[Rescate] Página {pageNumber} falló ({pageEx.GetType().Name}). " +
                 $"Activando modo 1 registro/consulta ({pageSize} intentos)...");
-            System.Diagnostics.Debug.WriteLine(
-                $"[FetchPageWithFallbackAsync] Página {pageNumber} falló: " +
-                $"{pageEx.GetType().Name} – {pageEx.Message}");
+            _logger.LogWarning(pageEx,
+                "[FetchPage] Página {PageNumber} falló — activando Fallback Paging 1x1 ({PageSize} intentos)",
+                pageNumber, pageSize);
 
             var recovered   = new List<Entity>(pageSize);
             string? subCookie  = pagingCookie;
@@ -501,13 +522,9 @@ public class AuditService : IAuditService
                 catch (OperationCanceledException) { throw; }
                 catch (Exception subEx)
                 {
-                    // Este registro individual está corrupto: se ignora con continue.
-                    // Sin un cookie válido no podemos avanzar el cursor de paginación,
-                    // por lo que detenemos el sub-bucle y el flujo principal continua
-                    // desde el último cursor válido obtenido.
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[FetchPageWithFallbackAsync] Registro {attempts + 1} ignorado: " +
-                        $"{subEx.GetType().Name} – {subEx.Message}");
+                    _logger.LogWarning(subEx,
+                        "[FetchPage] Registro {Attempt} en pág {SubPage} ignorado (corrompido)",
+                        attempts + 1, subPage);
                     progress?.Report(
                         $"  R{subPage}: registro corrupto ignorado. Reanudando desde cursor anterior...");
                     break;
@@ -527,7 +544,7 @@ public class AuditService : IAuditService
     // cuando el MetadataCache interno del SDK tiene entradas corruptas.
     // Este helper garantiza que NUNCA se propague una excepción al llamador.
     // ─────────────────────────────────────────────────────────────────────────────
-    private static T? SafeGet<T>(Entity entity, string attributeName)
+    private T? SafeGet<T>(Entity entity, string attributeName)
     {
         try
         {
@@ -535,8 +552,7 @@ public class AuditService : IAuditService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine(
-                $"[SafeGet] Error leyendo '{attributeName}': {ex.GetType().Name} – {ex.Message}");
+            _logger.LogDebug(ex, "[SafeGet] Error leyendo atributo '{Attribute}'", attributeName);
             return default;
         }
     }
@@ -556,8 +572,7 @@ public class AuditService : IAuditService
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine(
-                $"[SafeResolveNameIfReference] Campo '{fieldName}': {ex.GetType().Name} – {ex.Message}");
+            _logger.LogDebug(ex, "[SafeResolveNameIfReference] Campo '{Field}'", fieldName);
             return "[Datos Corruptos en Dataverse]";
         }
     }
@@ -572,8 +587,7 @@ public class AuditService : IAuditService
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine(
-                $"[SafeResolveEntityPrimaryName] '{entityLogicalName}' {id}: {ex.GetType().Name} – {ex.Message}");
+            _logger.LogDebug(ex, "[SafeResolveEntityPrimaryName] '{Entity}' {Id}", entityLogicalName, id);
             return "[Datos Corruptos en Dataverse]";
         }
     }
@@ -659,9 +673,9 @@ public class AuditService : IAuditService
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine(
-                $"[BuildDetailRowsAsync] RetrieveAuditDetailsRequest falló auditid={auditId}: " +
-                $"{ex.GetType().Name} – {ex.Message}. Usando fallback changedata.");
+            _logger.LogWarning(ex,
+                "[BuildDetailRows] RetrieveAuditDetailsRequest falló auditid={AuditId} — usando fallback changedata",
+                auditId);
         }
 
         if (detail is not null)
@@ -773,8 +787,9 @@ public class AuditService : IAuditService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine(
-                $"[TranslateAuditAttributeValue] '{attributeName}': {ex.GetType().Name} – {ex.Message}");
+            _logger.LogDebug(ex,
+                "[TranslateAuditAttributeValue] Atributo '{Attribute}'",
+                attributeName);
             return value?.ToString() ?? string.Empty;
         }
     }
@@ -865,8 +880,9 @@ public class AuditService : IAuditService
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[ResolveViewObjectIdsAsync] Error pág {page}: {ex.GetType().Name} – {ex.Message}");
+                _logger.LogWarning(ex,
+                    "[ResolveViewObjectIds] Error en pág {Page} del FetchXML de Vista; retornando IDs parciales",
+                    page);
                 break; // Retornar los IDs recuperados hasta el momento
             }
         }
@@ -1027,9 +1043,9 @@ public class AuditService : IAuditService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine(
-                $"[LoadEntityMetadataContextAsync] Metadatos de '{entityName}' no disponibles: " +
-                $"{ex.GetType().Name} – {ex.Message}");
+            _logger.LogWarning(ex,
+                "[LoadEntityMetadata] Metadatos de '{EntityName}' no disponibles; usando cachés vacías",
+                entityName);
 
             // Dejar cachés en estado vacío/seguro para esta entidad.
             _optionSetCache = new Dictionary<string, Dictionary<int, string>>(StringComparer.OrdinalIgnoreCase);

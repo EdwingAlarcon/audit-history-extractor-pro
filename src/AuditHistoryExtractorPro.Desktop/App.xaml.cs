@@ -2,6 +2,8 @@
 using AuditHistoryExtractorPro.Desktop.Services;
 using AuditHistoryExtractorPro.Desktop.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Serilog;
 using System.Windows;
 
 namespace AuditHistoryExtractorPro.Desktop;
@@ -17,9 +19,29 @@ public partial class App : System.Windows.Application
 	{
 		base.OnStartup(e);
 
+		// ── SERILOG: configuración de archivo rodante ─────────────────────────
+		var logDir = System.IO.Path.Combine(
+			AppDomain.CurrentDomain.BaseDirectory, "Logs");
+		System.IO.Directory.CreateDirectory(logDir);
+
+		Log.Logger = new LoggerConfiguration()
+			.MinimumLevel.Debug()
+			.Enrich.FromLogContext()
+			.WriteTo.File(
+				path: System.IO.Path.Combine(logDir, "AuditExtractor-.txt"),
+				rollingInterval: Serilog.RollingInterval.Day,
+				retainedFileCountLimit: 14,
+				outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
+			.CreateLogger();
+
+		Log.Information("=== AuditHistoryExtractorPro iniciado ===");
+		// ─────────────────────────────────────────────────────────────────────
+
 		// ── MANEJADORES GLOBALES DE EXCEPCIONES NO CONTROLADAS ───────────────
 		DispatcherUnhandledException += (_, args) =>
 		{
+			Log.Fatal(args.Exception, "[DispatcherUnhandledException] Excepción no controlada en el hilo UI");
+			Log.CloseAndFlush();
 			WriteEmergencyLog(args.Exception, "DispatcherUnhandledException");
 			args.Handled = true;
 		};
@@ -27,11 +49,16 @@ public partial class App : System.Windows.Application
 		AppDomain.CurrentDomain.UnhandledException += (_, args) =>
 		{
 			if (args.ExceptionObject is Exception ex)
+			{
+				Log.Fatal(ex, "[AppDomain.UnhandledException] Excepción no controlada en hilo de fondo");
+				Log.CloseAndFlush();
 				WriteEmergencyLog(ex, "AppDomain.UnhandledException");
+			}
 		};
 
 		System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, args) =>
 		{
+			Log.Error(args.Exception, "[UnobservedTaskException] Tarea no observada");
 			WriteEmergencyLog(args.Exception, "UnobservedTaskException");
 			args.SetObserved();
 		};
@@ -89,12 +116,23 @@ public partial class App : System.Windows.Application
 
 	protected override void OnExit(ExitEventArgs e)
 	{
+		Log.Information("=== AuditHistoryExtractorPro cerrando ===");
+		Log.CloseAndFlush();
 		_serviceProvider?.Dispose();
 		base.OnExit(e);
 	}
 
 	private static void ConfigureServices(IServiceCollection services)
 	{
+		// ── Serilog como proveedor de ILogger<T> para todo el árbol DI ────────
+		services.AddLogging(lb =>
+		{
+			lb.ClearProviders();
+			lb.SetMinimumLevel(LogLevel.Debug);
+			lb.AddSerilog(Log.Logger, dispose: false);
+		});
+		// ─────────────────────────────────────────────────────────────────────
+
 		services.AddSingleton<AuthHelper>();
 		services.AddSingleton<QueryBuilderService>();
 		services.AddSingleton<IMetadataTranslationService, MetadataTranslationService>();
