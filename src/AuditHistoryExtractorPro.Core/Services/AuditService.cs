@@ -243,7 +243,21 @@ public class AuditService : IAuditService
                 filePath = Path.ChangeExtension(filePath, ".xlsx");
             }
 
-            await LoadEntityMetadataContextAsync(request.EntityName, cancellationToken);
+            // Si los metadatos de la entidad no se pueden cargar (ej. solución desinstalada),
+            // se continúa sin pre-calentamiento; StreamRowsAsync gestionará los fallos por fila.
+            try
+            {
+                await LoadEntityMetadataContextAsync(request.EntityName, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception metaEx)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[ExtractAuditHistoryAsync] Advertencia metadatos '{request.EntityName}': {metaEx.Message}");
+            }
 
             progress?.Report("Iniciando extracción de auditoría...");
 
@@ -324,6 +338,7 @@ public class AuditService : IAuditService
             foreach (var entity in response.Entities)
             {
                 AuditExportRow? row = null;
+                bool rowFaulted = false;
                 try
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -417,28 +432,45 @@ public class AuditService : IAuditService
                         }
                     }
                 }
-                catch
+                catch (Exception rowEx)
                 {
-                    // Red de seguridad exterior: cualquier error no previsto produce una fila
-                    // con valores seguros en lugar de abortar todo el proceso de exportación.
+                    // ── RED DE SEGURIDAD EXTERIOR ────────────────────────────────────────
+                    // Cualquier error no previsto queda bloqueado aquí.
+                    // PROHIBIDO re-lanzar (throw) o retornar error al nivel superior.
+                    // Se rellena la fila con valores de diagnóstico y se continúa.
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[StreamRowsAsync] Fila ignorada: {rowEx.GetType().Name} – {rowEx.Message}");
+                    rowFaulted = true;
                     row = new AuditExportRow
                     {
                         AuditId       = string.Empty,
                         CreatedOn     = string.Empty,
-                        EntityName    = "[Registro No Encontrado o Eliminado]",
+                        EntityName    = "[Registro Eliminado o Corrupto]",
                         RecordId      = string.Empty,
-                        LogicalName   = "[Registro No Encontrado o Eliminado]",
+                        LogicalName   = "[Registro Eliminado o Corrupto]",
                         RecordUrl     = string.Empty,
                         ActionCode    = 0,
-                        ActionName    = "[Registro No Encontrado o Eliminado]",
+                        ActionName    = "[Registro Eliminado o Corrupto]",
                         UserId        = string.Empty,
-                        UserName      = "[Registro No Encontrado o Eliminado]",
-                        RealActor     = "[Registro No Encontrado o Eliminado]",
+                        UserName      = "[Registro Eliminado o Corrupto]",
+                        RealActor     = "[Registro Eliminado o Corrupto]",
                         TransactionId = string.Empty,
                         ChangedField  = string.Empty,
-                        OldValue      = "[Registro No Encontrado o Eliminado]",
-                        NewValue      = "[Registro No Encontrado o Eliminado]"
+                        OldValue      = "[Registro Eliminado o Corrupto]",
+                        NewValue      = "[Registro Eliminado o Corrupto]"
                     };
+                }
+
+                // Las filas con error se incluyen SIEMPRE en el resultado, sin pasar
+                // por el filtro de búsqueda, para garantizar trazabilidad de datos corruptos.
+                // Se usa continue para pasar a la siguiente iteración sin detener el proceso.
+                if (rowFaulted && row != null)
+                {
+                    totalWritten++;
+                    updateCount(totalWritten);
+                    yield return row;
+                    if (totalWritten >= request.MaxRecords) break;
+                    continue;
                 }
 
                 if (row != null && MatchesSearchValue(row, searchValue))

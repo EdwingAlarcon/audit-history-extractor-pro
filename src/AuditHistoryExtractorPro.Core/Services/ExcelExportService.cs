@@ -86,8 +86,19 @@ public class ExcelExportService : IExcelExportService
             _ => 0u
         };
 
-        var translatedOldValue = _metadataTranslationService.TranslateValue(row.LogicalName, row.ChangedField, row.OldValue);
-        var translatedNewValue = _metadataTranslationService.TranslateValue(row.LogicalName, row.ChangedField, row.NewValue);
+        string translatedOldValue;
+        string translatedNewValue;
+        try
+        {
+            translatedOldValue = _metadataTranslationService.TranslateValue(row.LogicalName, row.ChangedField, row.OldValue);
+            translatedNewValue = _metadataTranslationService.TranslateValue(row.LogicalName, row.ChangedField, row.NewValue);
+        }
+        catch
+        {
+            // Si la traducción de metadatos falla para esta fila, se usan los valores originales.
+            translatedOldValue = row.OldValue;
+            translatedNewValue = row.NewValue;
+        }
 
         writer.WriteStartElement(new Row());
 

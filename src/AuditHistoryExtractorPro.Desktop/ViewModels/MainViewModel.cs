@@ -21,11 +21,14 @@ public partial class MainViewModel : ObservableObject
     private CancellationTokenSource? _userSearchCts;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(PreviewCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExtractCommand))]
     private bool isConnected;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
     [NotifyCanExecuteChangedFor(nameof(ExtractCommand))]
+    [NotifyCanExecuteChangedFor(nameof(PreviewCommand))]
     private bool isBusy;
 
     [ObservableProperty]
