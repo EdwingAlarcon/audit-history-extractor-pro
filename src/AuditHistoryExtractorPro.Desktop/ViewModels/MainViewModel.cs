@@ -319,11 +319,20 @@ public partial class MainViewModel : ObservableObject
                 SelectedView       = SelectedView
             };
 
-            var rows = await _auditService.GetPreviewRowsAsync(request, PreviewLimit);
+            // Ejecutar en hilo de fondo para no bloquear el UI thread.
+            // GetPreviewRowsAsync puede tardar varios segundos cuando la entidad
+            // tiene metadatos corruptos en Dataverse; si corre en el UI thread
+            // la ventana queda congelada hasta que finaliza.
+            var rows = await Task.Run(
+                () => _auditService.GetPreviewRowsAsync(request, PreviewLimit));
 
+            // Agregar filas a la ObservableCollection en el UI thread.
+            // WPF lanza NotSupportedException si se modifica un ObservableCollection
+            // desde un hilo de fondo (cross-thread operation).
+            var dispatcher = System.Windows.Application.Current.Dispatcher;
             foreach (var row in rows)
             {
-                PreviewRecords.Add(row);
+                dispatcher.Invoke(() => PreviewRecords.Add(row));
             }
 
             ProgressValue = 100;

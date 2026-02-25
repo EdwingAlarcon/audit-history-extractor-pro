@@ -31,6 +31,10 @@ public class AuditService : IAuditService
     private const int DefaultRetryAfterSeconds = 5;
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
     private readonly SemaphoreSlim _nameResolutionLock = new(1, 1);
+    // Entidades cuya llamada RetrieveEntityRequest ya fallÃ³ en esta sesiÃ³n.
+    // Cualquier llamada posterior a LoadEntityMetadataContextAsync para esa
+    // entidad retorna inmediatamente sin tocar Dataverse (fallo instantÃ¡neo).
+    private readonly HashSet<string> _entidadesCorruptasCache = new(StringComparer.OrdinalIgnoreCase);
     private DataverseServiceClient? _serviceClient;
     private IAuthenticationProvider? _authenticationProvider;
     private AuthenticationConfiguration? _authenticationConfiguration;
@@ -1118,6 +1122,20 @@ public class AuditService : IAuditService
             return;
         }
 
+        // ── CACHÉ DE FALLOS: si esta entidad ya lanzÃ³ excepciÃ³n antes en esta
+        // sesiÃ³n, retornamos inmediatamente sin llamar a Dataverse.
+        // Esto evita que acumulaciÃ³n de timeouts congele el hilo UI.
+        if (_entidadesCorruptasCache.Contains(entityName))
+        {
+            _logger.LogDebug(
+                "[LoadEntityMetadata] '{EntityName}' estÃ¡ en lista negra de entidades corruptas; omitiendo llamada a Dataverse",
+                entityName);
+            _optionSetCache = new Dictionary<string, Dictionary<int, string>>(StringComparer.OrdinalIgnoreCase);
+            _attributeByColumnNumber = new Dictionary<int, string>();
+            _lookupTargetByAttribute = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            return;
+        }
+
         var request = new RetrieveEntityRequest
         {
             LogicalName = entityName,
@@ -1144,14 +1162,18 @@ public class AuditService : IAuditService
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
-                "[LoadEntityMetadata] Metadatos de '{EntityName}' no disponibles; usando cachés vacías",
+                "[LoadEntityMetadata] Metadatos de '{EntityName}' no disponibles; aÃ±adiendo a lista negra y usando cachÃ©s vacÃ­as",
                 entityName);
 
-            // Dejar cachés en estado vacío/seguro para esta entidad.
+            // AÃ±adir a lista negra para que futuras llamadas fallen instantÃ¡neamente
+            // sin esperar el timeout de Dataverse.
+            _entidadesCorruptasCache.Add(entityName);
+
+            // Dejar cachÃ©s en estado vacÃ­o/seguro para esta entidad.
             _optionSetCache = new Dictionary<string, Dictionary<int, string>>(StringComparer.OrdinalIgnoreCase);
             _attributeByColumnNumber = new Dictionary<int, string>();
             _lookupTargetByAttribute = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            return;  // Continuar sin metadatos; los campos mostrarán valores raw.
+            return;  // Continuar sin metadatos; los campos mostrarÃ¡n valores raw.
         }
 
         _metadataTranslationService.CacheEntityMetadata(entityName, response.EntityMetadata);
