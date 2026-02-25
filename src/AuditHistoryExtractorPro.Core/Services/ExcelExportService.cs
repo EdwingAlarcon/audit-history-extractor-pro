@@ -64,9 +64,26 @@ public class ExcelExportService : IExcelExportService
     private static void WriteHeader(OpenXmlWriter writer)
     {
         writer.WriteStartElement(new Row());
+        // Orden exacto requerido: compatible con el esquema de la app original.
         var headers = new[]
         {
-            "AuditId", "Record ID", "LogicalName", "EntityName", "RecordUrl", "CreatedOn", "ActionCode", "ActionName", "UserId", "UserName", "RealActor", "TransactionId", "ChangedField", "OldValue", "NewValue"
+            "RecordId",        // objectid del registro auditado
+            "AuditId",         // auditid
+            "EntityId",        // alias de RecordId
+            "ActionId",        // código numérico de 'action'
+            "OperationId",     // código numérico de 'operation'
+            "OldValue",        // valor anterior (legible)
+            "NewValue",        // valor nuevo (legible)
+            "CreatedOn",       // fecha/hora del evento (hora local)
+            "EntityName",      // nombre lógico de la entidad
+            "UserId",          // GUID del usuario
+            "AttributeName",   // campo modificado
+            "RecordKeyValue",  // primary-name del registro auditado
+            "Action",          // nombre de la acción (Create, Update, Delete...)
+            "Operation",       // nombre de la operación DML
+            "Username",        // nombre completo del usuario
+            "LookupOldValue",  // Name del EntityReference anterior
+            "LookupNewValue"   // Name del EntityReference nuevo
         };
 
         foreach (var header in headers)
@@ -79,10 +96,11 @@ public class ExcelExportService : IExcelExportService
 
     private void WriteDataRow(OpenXmlWriter writer, AuditExportRow row)
     {
-        var rowStyle = row.ActionName switch
+        // Color por ActionCode: 1=Create(verde), 3=Delete(rojo), resto=sin relleno.
+        var rowStyle = row.ActionCode switch
         {
-            "Create" => 1u,
-            "Delete" => 2u,
+            1 => 1u,   // Create  → verde (E2F0D9)
+            3 => 2u,   // Delete  → rojo   (FCE4D6)
             _ => 0u
         };
 
@@ -95,30 +113,35 @@ public class ExcelExportService : IExcelExportService
         }
         catch
         {
-            // Si la traducción de metadatos falla para esta fila, se usan los valores originales.
             translatedOldValue = row.OldValue;
             translatedNewValue = row.NewValue;
         }
 
+        // Columna NewValue con bold en filas de Update para resaltar el cambio.
+        var newValueStyle = row.ActionCode == 2 ? 3u : rowStyle;
+
         writer.WriteStartElement(new Row());
 
-        WriteCell(writer, row.AuditId, rowStyle);
-        WriteCell(writer, row.RecordId, rowStyle);
-        WriteCell(writer, row.LogicalName, rowStyle);
-        WriteCell(writer, row.EntityName, rowStyle);
-        WriteCell(writer, row.RecordUrl, rowStyle);
-        WriteCell(writer, row.CreatedOn, rowStyle);
-        WriteCell(writer, row.ActionCode.ToString(), rowStyle);
-        WriteCell(writer, row.ActionName, rowStyle);
-        WriteCell(writer, row.UserId, rowStyle);
-        WriteCell(writer, row.UserName, rowStyle);
-        WriteCell(writer, row.RealActor, rowStyle);
-        WriteCell(writer, row.TransactionId, rowStyle);
-        WriteCell(writer, row.ChangedField, rowStyle);
-        WriteCell(writer, translatedOldValue, rowStyle);
-
-        var changedValueStyle = row.ActionName == "Update" ? 3u : rowStyle;
-        WriteCell(writer, translatedNewValue, changedValueStyle);
+        // Orden: RecordId, AuditId, EntityId, ActionId, OperationId, OldValue, NewValue,
+        //        CreatedOn, EntityName, UserId, AttributeName, RecordKeyValue,
+        //        Action, Operation, Username, LookupOldValue, LookupNewValue
+        WriteCell(writer, row.RecordId,                           rowStyle);
+        WriteCell(writer, row.AuditId,                            rowStyle);
+        WriteCell(writer, row.EntityId,                           rowStyle);
+        WriteCell(writer, row.ActionId.ToString(),                rowStyle);
+        WriteCell(writer, row.OperationId.ToString(),             rowStyle);
+        WriteCell(writer, translatedOldValue,                     rowStyle);
+        WriteCell(writer, translatedNewValue,                     newValueStyle);
+        WriteCell(writer, row.CreatedOn,                          rowStyle);
+        WriteCell(writer, row.EntityName,                         rowStyle);
+        WriteCell(writer, row.UserId,                             rowStyle);
+        WriteCell(writer, row.AttributeName,                      rowStyle);
+        WriteCell(writer, row.RecordKeyValue,                     rowStyle);
+        WriteCell(writer, row.Action,                             rowStyle);
+        WriteCell(writer, row.Operation,                          rowStyle);
+        WriteCell(writer, row.Username,                           rowStyle);
+        WriteCell(writer, row.LookupOldValue,                     rowStyle);
+        WriteCell(writer, row.LookupNewValue,                     newValueStyle);
 
         writer.WriteEndElement();
     }

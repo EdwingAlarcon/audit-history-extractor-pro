@@ -464,21 +464,26 @@ public class AuditService : IAuditService
                     {
                         entityRows.Add(new AuditExportRow
                         {
-                            AuditId       = rawAuditId,
-                            CreatedOn     = string.Empty,
-                            EntityName    = "[Error Interno — ver log]",
-                            RecordId      = string.Empty,
-                            LogicalName   = string.Empty,
-                            RecordUrl     = string.Empty,
-                            ActionCode    = 0,
-                            ActionName    = "[Error Interno]",
-                            UserId        = string.Empty,
-                            UserName      = "[Error Interno]",
-                            RealActor     = "[Error Interno]",
-                            TransactionId = string.Empty,
-                            ChangedField  = "[Error Interno]",
-                            OldValue      = "[Error al mapear — ver log]",
-                            NewValue      = $"[{entityEx.GetType().Name}: {entityEx.Message}]"
+                            AuditId        = rawAuditId,
+                            CreatedOn      = string.Empty,
+                            EntityName     = "[Error Interno — ver log]",
+                            LogicalName    = string.Empty,
+                            RecordId       = string.Empty,
+                            RecordKeyValue = string.Empty,
+                            RecordUrl      = string.Empty,
+                            ActionCode     = 0,
+                            ActionName     = "[Error Interno]",
+                            OperationId    = 0,
+                            Operation      = string.Empty,
+                            UserId         = string.Empty,
+                            UserName       = "[Error Interno]",
+                            RealActor      = "[Error Interno]",
+                            TransactionId  = string.Empty,
+                            ChangedField   = "[Error Interno]",
+                            OldValue       = "[Error al mapear — ver log]",
+                            NewValue       = $"[{entityEx.GetType().Name}: {entityEx.Message}]",
+                            LookupOldValue = string.Empty,
+                            LookupNewValue = string.Empty
                         });
                     }
                 }
@@ -731,33 +736,41 @@ public class AuditService : IAuditService
         var auditId        = SafeGet<Guid>(auditEntity, "auditid");
         var createdOn      = SafeGet<DateTime>(auditEntity, "createdon");
         var objectRef      = SafeGet<EntityReference>(auditEntity, "objectid");
-        var actionOptSet   = SafeGet<OptionSetValue>(auditEntity, "action");
-        var userRef        = SafeGet<EntityReference>(auditEntity, "userid");
+        var actionOptSet    = SafeGet<OptionSetValue>(auditEntity, "action");
+        var operationOptSet = SafeGet<OptionSetValue>(auditEntity, "operation");
+        var userRef         = SafeGet<EntityReference>(auditEntity, "userid");
         var callingUserRef = SafeGet<EntityReference>(auditEntity, "callinguserid");
         var transactionId  = SafeGet<Guid?>(auditEntity, "transactionid");
 
         // GUARD: objectid corrupto (Guid.Empty) → fila de diagnóstico
         if (objectRef != null && (objectRef.Id == Guid.Empty || string.IsNullOrWhiteSpace(objectRef.LogicalName)))
         {
+            var guardAction = actionOptSet?.Value ?? 0;
+            var guardOp     = operationOptSet?.Value ?? 0;
             yield return new AuditExportRow
             {
-                AuditId       = auditId.ToString(),
-                CreatedOn     = createdOn == default
+                AuditId        = auditId.ToString(),
+                CreatedOn      = createdOn == default
                     ? string.Empty
                     : createdOn.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
-                EntityName    = "[Registro No Encontrado o Eliminado]",
-                RecordId      = "[Guid.Empty]",
-                LogicalName   = "[Registro No Encontrado o Eliminado]",
-                RecordUrl     = string.Empty,
-                ActionCode    = actionOptSet?.Value ?? 0,
-                ActionName    = "[Referencia Corrupta - Guid.Empty]",
-                UserId        = string.Empty,
-                UserName      = "[Registro No Encontrado o Eliminado]",
-                RealActor     = "[Registro No Encontrado o Eliminado]",
-                TransactionId = string.Empty,
-                ChangedField  = string.Empty,
-                OldValue      = "[Registro No Encontrado o Eliminado]",
-                NewValue      = "[Registro No Encontrado o Eliminado]"
+                EntityName     = "[Registro No Encontrado o Eliminado]",
+                LogicalName    = "[Registro No Encontrado o Eliminado]",
+                RecordId       = "[Guid.Empty]",
+                RecordKeyValue = string.Empty,
+                RecordUrl      = string.Empty,
+                ActionCode     = guardAction,
+                ActionName     = "[Referencia Corrupta - Guid.Empty]",
+                OperationId    = guardOp,
+                Operation      = GetAuditOperationName(guardOp),
+                UserId         = string.Empty,
+                UserName       = "[Registro No Encontrado o Eliminado]",
+                RealActor      = "[Registro No Encontrado o Eliminado]",
+                TransactionId  = string.Empty,
+                ChangedField   = string.Empty,
+                OldValue       = "[Registro No Encontrado o Eliminado]",
+                NewValue       = "[Registro No Encontrado o Eliminado]",
+                LookupOldValue = string.Empty,
+                LookupNewValue = string.Empty
             };
             yield break;
         }
@@ -771,9 +784,13 @@ public class AuditService : IAuditService
         userRef        = SafeGet<EntityReference>(auditEntity, "userid");
         callingUserRef = SafeGet<EntityReference>(auditEntity, "callinguserid");
 
-        var logicalName  = objectRef?.LogicalName ?? SafeGet<string>(auditEntity, "objecttypecode") ?? string.Empty;
-        var recordId     = objectRef?.Id.ToString("D") ?? string.Empty;
-        var actionCode   = actionOptSet?.Value ?? 0;
+        var logicalName    = objectRef?.LogicalName ?? SafeGet<string>(auditEntity, "objecttypecode") ?? string.Empty;
+        var recordId       = objectRef?.Id.ToString("D") ?? string.Empty;
+        var actionCode     = actionOptSet?.Value ?? 0;
+        var operationCode  = operationOptSet?.Value ?? 0;
+        // RecordKeyValue: valor primary-name del registro auditado (ej. fullname para contact).
+        // Dataverse suele rellenar objectRef.Name cuando el campo primary de la entidad está indexado.
+        var recordKeyValue = objectRef?.Name ?? string.Empty;
         var auditIdStr   = auditId != Guid.Empty ? auditId.ToString() : string.Empty;
         // ToLocalTime(): Dataverse devuelve createdon como UTC (Kind=Utc).
         // Lo convertimos a la zona local del usuario para que las fechas en el
@@ -836,35 +853,70 @@ public class AuditService : IAuditService
                     // Evento sin campos detallados (Create sin tracking, etc.)
                     rows.Add(new AuditExportRow
                     {
-                        AuditId = auditIdStr, CreatedOn = createdOnStr, EntityName = logicalName,
-                        RecordId = recordId, LogicalName = logicalName, RecordUrl = recordUrl,
-                        ActionCode = actionCode, ActionName = GetOperationName(actionCode),
-                        UserId = userIdStr, UserName = userName, RealActor = realActor,
-                        TransactionId = txIdStr, ChangedField = string.Empty,
-                        OldValue = string.Empty, NewValue = string.Empty
+                        AuditId        = auditIdStr,
+                        CreatedOn      = createdOnStr,
+                        EntityName     = logicalName,
+                        LogicalName    = logicalName,
+                        RecordId       = recordId,
+                        RecordKeyValue = recordKeyValue,
+                        RecordUrl      = recordUrl,
+                        ActionCode     = actionCode,
+                        ActionName     = GetAuditActionName(actionCode),
+                        OperationId    = operationCode,
+                        Operation      = GetAuditOperationName(operationCode),
+                        UserId         = userIdStr,
+                        UserName       = userName,
+                        RealActor      = realActor,
+                        TransactionId  = txIdStr,
+                        ChangedField   = string.Empty,
+                        OldValue       = string.Empty,
+                        NewValue       = string.Empty,
+                        LookupOldValue = string.Empty,
+                        LookupNewValue = string.Empty
                     });
                 }
                 else
                 {
-                    // Una fila por cada atributo cambiado
+                    // Una fila por cada atributo cambiado (flattening)
                     foreach (var attrName in changedAttrs)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
-                        var oldVal = TranslateAuditAttributeValue(attrName,
-                            detail.OldValue?.Contains(attrName) == true
-                                ? detail.OldValue.GetAttributeValue<object>(attrName) : null);
-                        var newVal = TranslateAuditAttributeValue(attrName,
-                            detail.NewValue?.Contains(attrName) == true
-                                ? detail.NewValue.GetAttributeValue<object>(attrName) : null);
+
+                        var rawOld = detail.OldValue?.Contains(attrName) == true
+                            ? detail.OldValue.GetAttributeValue<object>(attrName) : null;
+                        var rawNew = detail.NewValue?.Contains(attrName) == true
+                            ? detail.NewValue.GetAttributeValue<object>(attrName) : null;
+
+                        var oldVal = TranslateAuditAttributeValue(attrName, rawOld);
+                        var newVal = TranslateAuditAttributeValue(attrName, rawNew);
+
+                        // LookupOldValue / LookupNewValue: Name del EntityReference
+                        // (vacío para tipos que no son Lookup)
+                        var lookupOld = ExtractLookupName(rawOld);
+                        var lookupNew = ExtractLookupName(rawNew);
 
                         rows.Add(new AuditExportRow
                         {
-                            AuditId = auditIdStr, CreatedOn = createdOnStr, EntityName = logicalName,
-                            RecordId = recordId, LogicalName = logicalName, RecordUrl = recordUrl,
-                            ActionCode = actionCode, ActionName = GetOperationName(actionCode),
-                            UserId = userIdStr, UserName = userName, RealActor = realActor,
-                            TransactionId = txIdStr, ChangedField = attrName,
-                            OldValue = oldVal, NewValue = newVal
+                            AuditId        = auditIdStr,
+                            CreatedOn      = createdOnStr,
+                            EntityName     = logicalName,
+                            LogicalName    = logicalName,
+                            RecordId       = recordId,
+                            RecordKeyValue = recordKeyValue,
+                            RecordUrl      = recordUrl,
+                            ActionCode     = actionCode,
+                            ActionName     = GetAuditActionName(actionCode),
+                            OperationId    = operationCode,
+                            Operation      = GetAuditOperationName(operationCode),
+                            UserId         = userIdStr,
+                            UserName       = userName,
+                            RealActor      = realActor,
+                            TransactionId  = txIdStr,
+                            ChangedField   = attrName,
+                            OldValue       = oldVal,
+                            NewValue       = newVal,
+                            LookupOldValue = lookupOld,
+                            LookupNewValue = lookupNew
                         });
                     }
                 }
@@ -891,12 +943,29 @@ public class AuditService : IAuditService
 
                     rows.Add(new AuditExportRow
                     {
-                        AuditId = auditIdStr, CreatedOn = createdOnStr, EntityName = logicalName,
-                        RecordId = recordId, LogicalName = logicalName, RecordUrl = recordUrl,
-                        ActionCode = actionCode, ActionName = GetOperationName(actionCode),
-                        UserId = userIdStr, UserName = userName, RealActor = realActor,
-                        TransactionId = txIdStr, ChangedField = parsed.field,
-                        OldValue = oldVal, NewValue = newVal
+                        AuditId        = auditIdStr,
+                        CreatedOn      = createdOnStr,
+                        EntityName     = logicalName,
+                        LogicalName    = logicalName,
+                        RecordId       = recordId,
+                        RecordKeyValue = recordKeyValue,
+                        RecordUrl      = recordUrl,
+                        ActionCode     = actionCode,
+                        ActionName     = GetAuditActionName(actionCode),
+                        OperationId    = operationCode,
+                        Operation      = GetAuditOperationName(operationCode),
+                        UserId         = userIdStr,
+                        UserName       = userName,
+                        RealActor      = realActor,
+                        TransactionId  = txIdStr,
+                        ChangedField   = parsed.field,
+                        // En el fallback (changedata XML), los valores ya son strings.
+                        // LookupOldValue/New duplica OldValue/NewValue cuando el campo
+                        // es un Lookup resuelto por ResolveNameIfReferenceAsync.
+                        OldValue       = oldVal,
+                        NewValue       = newVal,
+                        LookupOldValue = oldVal,
+                        LookupNewValue = newVal
                     });
                 }
             }
@@ -915,21 +984,26 @@ public class AuditService : IAuditService
             {
                 rows.Add(new AuditExportRow
                 {
-                    AuditId       = auditIdStr,
-                    CreatedOn     = createdOnStr,
-                    EntityName    = string.IsNullOrEmpty(logicalName) ? "[Entidad Desconocida]" : logicalName,
-                    RecordId      = recordId,
-                    LogicalName   = logicalName,
-                    RecordUrl     = string.Empty,
-                    ActionCode    = actionCode,
-                    ActionName    = GetOperationName(actionCode),
-                    UserId        = string.Empty,
-                    UserName      = "[Metadatos No Disponibles]",
-                    RealActor     = "[Metadatos No Disponibles]",
-                    TransactionId = txIdStr,
-                    ChangedField  = "[Error al mapear campos]",
-                    OldValue      = "[Metadatos Rotos — ver log]",
-                    NewValue      = $"[{outerEx.GetType().Name}]"
+                    AuditId        = auditIdStr,
+                    CreatedOn      = createdOnStr,
+                    EntityName     = string.IsNullOrEmpty(logicalName) ? "[Entidad Desconocida]" : logicalName,
+                    LogicalName    = logicalName,
+                    RecordId       = recordId,
+                    RecordKeyValue = recordKeyValue,
+                    RecordUrl      = string.Empty,
+                    ActionCode     = actionCode,
+                    ActionName     = GetAuditActionName(actionCode),
+                    OperationId    = operationCode,
+                    Operation      = GetAuditOperationName(operationCode),
+                    UserId         = string.Empty,
+                    UserName       = "[Metadatos No Disponibles]",
+                    RealActor      = "[Metadatos No Disponibles]",
+                    TransactionId  = txIdStr,
+                    ChangedField   = "[Error al mapear campos]",
+                    OldValue       = "[Metadatos Rotos — ver log]",
+                    NewValue       = $"[{outerEx.GetType().Name}]",
+                    LookupOldValue = string.Empty,
+                    LookupNewValue = string.Empty
                 });
             }
         }
@@ -1527,19 +1601,70 @@ public class AuditService : IAuditService
                 && row.OldValue.Contains(searchValue, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static string GetOperationName(int operationCode)
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Mapeo completo del campo 'action' de Dataverse (qué se hizo con el registro).
+    // Códigos fuera de la lista: se muestran como "Action_{code}" para trazabilidad.
+    // ─────────────────────────────────────────────────────────────────────────────
+    private static string GetAuditActionName(int code) => code switch
     {
-        return operationCode switch
-        {
-            1 => "Create",
-            2 => "Update",
-            3 => "Delete",
-            4 => "Associate",
-            5 => "Disassociate",
-            27 => "Archive",
-            28 => "Restore",
-            _ => "Unknown"
-        };
+        1  => "Create",
+        2  => "Update",
+        3  => "Delete",
+        4  => "Activate",
+        5  => "Deactivate",
+        6  => "Cancel",
+        7  => "Complete",
+        8  => "Close",
+        9  => "Fulfill",
+        10 => "Status Change",
+        11 => "Cancel (Order)",
+        12 => "Resolve",
+        13 => "Assign",
+        14 => "Share",
+        15 => "Unshare",
+        16 => "Merge",
+        17 => "Grant Access",
+        18 => "Modify Access",
+        19 => "Revoke Access",
+        20 => "Qualify Lead",
+        21 => "Disqualify",
+        22 => "Win Opportunity",
+        23 => "Lose Opportunity",
+        24 => "Qualify Opportunity",
+        25 => "Upsert",
+        26 => "Cascade",
+        27 => "Archive",
+        28 => "Restore",
+        29 => "Privacy Action",
+        65 => "System Attribute Change",
+        _  => $"Action_{code}"
+    };
+
+    /// <summary>Backward-compat alias — prefer GetAuditActionName in new code.</summary>
+    private static string GetOperationName(int code) => GetAuditActionName(code);
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Mapeo del campo 'operation' de Dataverse (tipo de operación DML).
+    // ─────────────────────────────────────────────────────────────────────────────
+    private static string GetAuditOperationName(int code) => code switch
+    {
+        1 => "Create",
+        2 => "Update",
+        3 => "Delete",
+        4 => "Access",
+        5 => "Upsert",
+        _ => $"Operation_{code}"
+    };
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // ExtractLookupName: extrae el Name de un EntityReference.
+    // Retorna string.Empty para cualquier tipo que no sea un Lookup.
+    // Usado para poblar LookupOldValue / LookupNewValue separados de OldValue/NewValue.
+    // ─────────────────────────────────────────────────────────────────────────────
+    private static string ExtractLookupName(object? value)
+    {
+        if (value is not EntityReference er) return string.Empty;
+        return !string.IsNullOrWhiteSpace(er.Name) ? er.Name : er.Id.ToString("D");
     }
 
     // ======================== Smart Retry Policy ========================
