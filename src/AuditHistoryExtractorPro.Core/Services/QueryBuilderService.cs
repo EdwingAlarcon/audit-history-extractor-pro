@@ -195,6 +195,17 @@ public class QueryBuilderService
             sb.Append($"      <condition attribute='objectid' operator='eq' value='{recordId}' />\n");
         }
 
+        // objectid IN — lote de IDs resueltos desde una Vista (max. 500/chunk).
+        // Ruta de paridad con BuildAuditQuery para que el fallback FetchXml también
+        // respete el filtro de IDs cuando StreamAllChunksAsync llama a esta ruta.
+        if (filters.ObjectIds.Count > 0)
+        {
+            sb.Append("      <condition attribute='objectid' operator='in'>\n");
+            foreach (var id in filters.ObjectIds)
+                sb.Append($"        <value>{id:D}</value>\n");
+            sb.Append("      </condition>\n");
+        }
+
         sb.Append("    </filter>\n");
         sb.Append("    <order attribute='createdon' descending='false' />\n");
         sb.Append("  </entity>\n</fetch>");
@@ -204,26 +215,25 @@ public class QueryBuilderService
 
     private static (DateTime? fromDate, DateTime? toDate) ResolveDateRange(AuditQueryFilters filters)
     {
-        // ── GUARD: "Todos" = sin restricción de fechas ────────────────────────
-        // Si el usuario seleccionó "Todo" (DateRangeFilter.Todo), no se aplica
-        // ningún filtro de fecha. StartDate/EndDate siempre vienen poblados
-        // desde BuildStartDateTime() aunque el usuario no haya especificado
-        // un rango, por lo que el check de SelectedDateRange tiene prioridad.
-        if (filters.SelectedDateRange == DateRangeFilter.Todo)
+        // ── RAMA A: Personalizado ─────────────────────────────────────────────
+        // El usuario eligió un intervalo concreto de fechas mediante los
+        // date-pickers (SelectedDateRange se pone en Personalizado automáticamente
+        // cuando el usuario modifica SelectedDateFrom/SelectedDateTo).
+        // Solo en este modo se respetan StartDate/EndDate/SelectedDateFrom/To;
+        // para los presets (Hoy/Semana/Mes) se usa la hora actual (rama B)
+        // y para "Todo" no se aplica filtro, lo que evita que el valor por
+        // defecto de DateTime.Today sombree el switch de presets.
+        if (filters.SelectedDateRange == DateRangeFilter.Personalizado)
         {
-            return (null, null);
-        }
+            var explicitFrom = filters.StartDate ?? filters.SelectedDateFrom;
+            var explicitTo   = filters.EndDate   ?? filters.SelectedDateTo;
 
-        var explicitFrom = filters.StartDate ?? filters.SelectedDateFrom;
-        var explicitTo   = filters.EndDate   ?? filters.SelectedDateTo;
+            if (!explicitFrom.HasValue && !explicitTo.HasValue)
+                return (null, null);
 
-        if (explicitFrom.HasValue || explicitTo.HasValue)
-        {
-            // Usamos DateTime.SpecifyKind(..., Local) de forma explícita antes de
-            // ToUniversalTime() para eliminar la ambigüedad de Kind=Unspecified que
-            // devuelve DateTime.Date. Sin SpecifyKind, .NET trata Unspecified como
-            // Local en ToUniversalTime(), pero la intención queda implícita y
-            // puede variar según el entorno (e.g. servidor sin zona configurada).
+            // Usamos DateTime.SpecifyKind(..., Local) antes de ToUniversalTime()
+            // para eliminar la ambigüedad de Kind=Unspecified que devuelve
+            // DateTime.Date — sin SpecifyKind la conversión depende del entorno.
             if (filters.IsFullDay)
             {
                 // Inicio: medianoche del día seleccionado en hora local → UTC
@@ -232,7 +242,7 @@ public class QueryBuilderService
                     : (DateTime?)null;
 
                 // Fin: último instante del día seleccionado en hora local → UTC
-                // Date.AddDays(1).AddTicks(-1) = 23:59:59.9999999 del día elegido
+                // Date.AddDays(1).AddTicks(-1) = 23:59:59.9999999 del mismo día
                 var toLocal = explicitTo.HasValue
                     ? DateTime.SpecifyKind(explicitTo.Value.Date.AddDays(1).AddTicks(-1), DateTimeKind.Local)
                     : (DateTime?)null;
@@ -241,13 +251,12 @@ public class QueryBuilderService
             }
 
             // Rango con hora explícita: el usuario especificó HH:mm
-            // Forzamos Kind=Local antes de convertir a UTC.
             var fromExplicit = explicitFrom.HasValue
                 ? DateTime.SpecifyKind(explicitFrom.Value, DateTimeKind.Local).ToUniversalTime()
                 : (DateTime?)null;
 
-            // Suma :59 segundos al minuto final para que el filtro ≤ cubra el
-            // segundo completo (evita perder registros de :mm:01…:mm:59).
+            // Suma :59 segundos al minuto final para cubrir el segundo completo
+            // (evita perder registros creados en :mm:01…:mm:59).
             var toExplicit = explicitTo.HasValue
                 ? DateTime.SpecifyKind(explicitTo.Value.AddSeconds(59), DateTimeKind.Local).ToUniversalTime()
                 : (DateTime?)null;
@@ -255,13 +264,17 @@ public class QueryBuilderService
             return (fromExplicit, toExplicit);
         }
 
+        // ── RAMA B: presets y "Todo" ──────────────────────────────────────────
+        // Los presets usan la hora actual; "Todo" no aplica filtro de fecha.
+        // Importante: NO se leen StartDate/EndDate para presets — así el valor
+        // por defecto DateTime.Today de BuildStartDateTime() no los sombrea.
         var now = DateTime.UtcNow;
         return filters.SelectedDateRange switch
         {
             DateRangeFilter.Hoy    => (now.Date, now),
             DateRangeFilter.Semana => (now.Date.AddDays(-7), now),
             DateRangeFilter.Mes    => (now.Date.AddMonths(-1), now),
-            _                      => (null, null)
+            _                      => (null, null)   // Todo y cualquier otro valor
         };
     }
 }

@@ -1143,10 +1143,12 @@ public class AuditService : IAuditService
                 SelectedDateTo     = request.SelectedDateTo,
                 IsFullDay          = request.IsFullDay,
                 SelectedUser       = request.SelectedUser,
+                SelectedOperation  = request.SelectedOperation,
                 SelectedOperations = request.SelectedOperations,
                 SelectedActions    = request.SelectedActions,
                 SelectedAttributes = request.SelectedAttributes,
                 SearchValue        = request.SearchValue,
+                RecordId           = request.RecordId,
                 StartDate          = request.StartDate,
                 EndDate            = request.EndDate
             };

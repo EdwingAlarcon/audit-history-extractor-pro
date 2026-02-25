@@ -767,6 +767,23 @@ public partial class MainViewModel : ObservableObject
             .ToList();
     }
 
+    // ── Auto-switch a Personalizado cuando el usuario cambia las fechas ───────
+    // Los presets (Hoy/Semana/Mes) calculan las fechas desde DateTime.UtcNow en
+    // QueryBuilderService.ResolveDateRange; no usan SelectedDateFrom/To.
+    // Cuando el usuario toca los date-pickers queremos que ResolveDateRange use
+    // esas fechas explícitas, lo que solo ocurre con DateRangeFilter.Personalizado.
+    partial void OnSelectedDateFromChanged(DateTime value)
+    {
+        if (SelectedDateRange != DateRangeFilter.Personalizado)
+            SelectedDateRange = DateRangeFilter.Personalizado;
+    }
+
+    partial void OnSelectedDateToChanged(DateTime value)
+    {
+        if (SelectedDateRange != DateRangeFilter.Personalizado)
+            SelectedDateRange = DateRangeFilter.Personalizado;
+    }
+
     private DateTime BuildStartDateTime()
     {
         if (IsFullDay)
