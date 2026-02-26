@@ -214,17 +214,18 @@ public class QueryBuilderService
         }
 
         // objectid IN — lote de IDs resueltos desde una Vista (max. 500/chunk).
-        // uitype especifica la entidad del lookup polimórfico; Dataverse require
-        // este atributo para resolver correctamente GUIDs en la tabla 'audit'.
-        // Sin uitype, la condición IN puede devolver 0 resultados aunque los GUIDs existan.
+        // En FetchXML, para operator='in', el atributo uitype debe estar en cada
+        // nodo <value>, NO en el nodo <condition>. Ponerlo en <condition> es
+        // ignorado silenciosamente por Dataverse y produce 0 resultados.
+        // Referencia: https://learn.microsoft.com/en-us/power-apps/developer/data-platform/fetchxml/reference/value
         if (filters.ObjectIds.Count > 0)
         {
             var uitypeAttr = string.IsNullOrWhiteSpace(filters.ObjectIdsEntityType)
                 ? string.Empty
                 : $" uitype='{System.Security.SecurityElement.Escape(filters.ObjectIdsEntityType.Trim().ToLowerInvariant())}'";
-            sb.Append($"      <condition attribute='objectid' operator='in'{uitypeAttr}>\n");
+            sb.Append("      <condition attribute='objectid' operator='in'>\n");
             foreach (var id in filters.ObjectIds)
-                sb.Append($"        <value>{id:D}</value>\n");
+                sb.Append($"        <value{uitypeAttr}>{id:D}</value>\n");
             sb.Append("      </condition>\n");
         }
 

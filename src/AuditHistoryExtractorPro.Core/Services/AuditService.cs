@@ -415,22 +415,12 @@ public class AuditService : IAuditService
         Action<int> updateCount,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        // ── Modo Vista / FetchXML manual: rutear a consulta por objectid IN ─────────────
-        // Cuando se dispone de un HashSet de IDs (desde Vista o FetchXML manual),
-        // se usa StreamRowsByObjectIdChunksAsync que consulta audit directamente
-        // por objectid IN (lotes de 500) SIN filtrar por objecttypecode.
-        // Motivo: los registros de auditoría legacy pueden tener un objecttypecode
-        // diferente al código actual de la entidad; filtrar por objecttypecode
-        // descarta esos registros y produce un recuento incorrecto (≈50% del real).
-        if (viewIdsHash != null && viewIdsHash.Count > 0)
-        {
-            await foreach (var row in StreamRowsByObjectIdChunksAsync(
-                request, viewIdsHash, progress, updateCount, cancellationToken))
-            {
-                yield return row;
-            }
-            yield break;
-        }
+        // ── Modo Vista: la Vista sólo determina el nombre de la entidad (EntityName).
+        // No se filtra por los IDs de la Vista — se consulta audit por objecttypecode
+        // + rango de fecha, igual que la app legacy. Filtrar por objectid IN (Vista IDs)
+        // devuelve 0 porque los registros auditados pueden ser IDs históricos/eliminados
+        // que ya no aparecen en la Vista actual pero sí existen en la tabla audit.
+        // viewIdsHash se conserva como parámetro para uso futuro (intersección opcional).
 
         var totalWritten = 0;
         var pageNumber = 1;
@@ -642,7 +632,7 @@ public class AuditService : IAuditService
             {
                 EntityName        = string.Empty,  // No filtrar por objecttypecode (usa objectid IN)
                 EntityTypeCode    = null,
-                ObjectIdsEntityType = request.EntityName,  // uitype para lookup polimórfico
+                ObjectIdsEntityType = request.EntityName ?? string.Empty,  // uitype para lookup polimórfico
                 SelectedDateRange = request.SelectedDateRange,
                 SelectedDateFrom  = request.SelectedDateFrom,
                 SelectedDateTo    = request.SelectedDateTo,
