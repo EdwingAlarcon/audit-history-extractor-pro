@@ -143,10 +143,20 @@ public class QueryBuilderService
         sb.Append("    <attribute name='transactionid'/>\n");
         sb.Append("    <attribute name='changedata'/>\n");
         sb.Append("    <filter type='and'>\n");
-        // objecttypecode: siempre minúsculas (coherente con BuildAuditQuery).
+        // objecttypecode: Dataverse requiere el código ENTERO del tipo de entidad.
+        // Si tenemos el código resuelto (EntityTypeCode), lo usamos directamente.
+        // Si no, usamos el nombre lógico como fallback, aunque puede fallar en
+        // algunas configuraciones de Dataverse (FormatException al parsear string→int).
         var entityCodeFx = (filters.EntityName ?? string.Empty).Trim().ToLowerInvariant();
-        if (!string.IsNullOrWhiteSpace(entityCodeFx))
+        if (filters.EntityTypeCode.HasValue)
         {
+            // Usar entero directamente — forma correcta y sin ambigüedad.
+            sb.Append($"      <condition attribute='objecttypecode' operator='eq' value='{filters.EntityTypeCode.Value}' />\n");
+        }
+        else if (!string.IsNullOrWhiteSpace(entityCodeFx))
+        {
+            // Fallback: nombre lógico como string (puede causar FormatException si
+            // Dataverse no resuelve el nombre al código en esta versión del servidor).
             sb.Append($"      <condition attribute='objecttypecode' operator='eq' value='{System.Security.SecurityElement.Escape(entityCodeFx)}' />\n");
         }
 

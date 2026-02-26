@@ -19,4 +19,9 @@ public class AuditQueryFilters
     /// <summary>IDs de registros de la entidad destino resueltos desde una Vista (objectid IN).  
     /// Vacío = sin restricción por IDs.</summary>
     public IReadOnlyList<Guid> ObjectIds { get; init; } = Array.Empty<Guid>();
+
+    /// <summary>Código de tipo de entidad (ObjectTypeCode) resuelto desde Dataverse.
+    /// Cuando se proporciona, se usa directamente como entero en la condición
+    /// 'objecttypecode' del FetchXML. Null = fallback al nombre lógico (menos fiable).</summary>
+    public int? EntityTypeCode { get; init; }
 }

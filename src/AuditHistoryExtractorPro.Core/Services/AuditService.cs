@@ -37,6 +37,9 @@ public class AuditService : IAuditService
     // Cualquier llamada posterior a LoadEntityMetadataContextAsync para esa
     // entidad retorna inmediatamente sin tocar Dataverse (fallo instantÃ¡neo).
     private readonly HashSet<string> _entidadesCorruptasCache = new(StringComparer.OrdinalIgnoreCase);
+    // Caché de ObjectTypeCode (entero) por nombre lógico de entidad.
+    // Dataverse requiere el entero en condiciones FetchXML sobre 'audit.objecttypecode'.
+    private readonly Dictionary<string, int> _entityTypeCodeCache = new(StringComparer.OrdinalIgnoreCase);
     private DataverseServiceClient? _serviceClient;
     private IAuthenticationProvider? _authenticationProvider;
     private AuthenticationConfiguration? _authenticationConfiguration;
@@ -417,9 +420,15 @@ public class AuditService : IAuditService
         string? pagingCookie = null;
         var hasMore = false;
 
+        // Resolver el ObjectTypeCode (entero) de la entidad UNA VEZ antes del loop.
+        // La tabla 'audit' almacena 'objecttypecode' como picklist (int); Dataverse
+        // rechaza el nombre lógico como string con FormatException en FetchXML.
+        var entityTypeCode = await ResolveEntityTypeCodeAsync(request.EntityName, cancellationToken);
+
         var filters = new AuditQueryFilters
         {
             EntityName = request.EntityName,
+            EntityTypeCode = entityTypeCode,
             SelectedDateRange = request.SelectedDateRange,
             SelectedDateFrom = request.SelectedDateFrom,
             SelectedDateTo = request.SelectedDateTo,
@@ -1411,6 +1420,46 @@ public class AuditService : IAuditService
         catch
         {
             return Array.Empty<(string field, string oldValue, string newValue)>();
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // HELPER: Resuelve el ObjectTypeCode (entero) de una entidad desde Dataverse.
+    // Los registros de 'audit' usan el campo 'objecttypecode' como picklist entero;
+    // Dataverse rechaza strings en condiciones FetchXML sobre ese campo con
+    // FormatException. Este método obtiene el código una sola vez y lo cachea.
+    // ─────────────────────────────────────────────────────────────────────────────
+    private async Task<int?> ResolveEntityTypeCodeAsync(string entityName, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(entityName) || _serviceClient is null) return null;
+        var key = entityName.Trim().ToLowerInvariant();
+        if (_entityTypeCodeCache.TryGetValue(key, out var cached)) return cached;
+        try
+        {
+            var req = new RetrieveEntityRequest
+            {
+                LogicalName = key,
+                EntityFilters = EntityFilters.Entity,
+                RetrieveAsIfPublished = true
+            };
+            var resp = (RetrieveEntityResponse)await _serviceClient.ExecuteAsync(req, cancellationToken);
+            var code = resp.EntityMetadata.ObjectTypeCode;
+            if (code.HasValue)
+            {
+                _entityTypeCodeCache[key] = code.Value;
+                _logger.LogDebug(
+                    "[ResolveEntityTypeCode] '{EntityName}' → ObjectTypeCode={Code}",
+                    entityName, code.Value);
+            }
+            return code;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "[ResolveEntityTypeCode] No se pudo resolver ObjectTypeCode para '{EntityName}'; se usará nombre lógico como fallback",
+                entityName);
+            return null;
         }
     }
 
