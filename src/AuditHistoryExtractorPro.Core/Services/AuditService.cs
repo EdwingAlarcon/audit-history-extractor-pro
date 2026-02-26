@@ -226,7 +226,8 @@ public class AuditService : IAuditService
             SelectedAttributes = request.SelectedAttributes,
             SearchValue        = request.SearchValue,
             MaxRecords         = maxRows,  // ← límite de seguridad anti-OOM
-            SelectedView       = request.SelectedView
+            SelectedView       = request.SelectedView,
+            CustomFetchXml     = request.CustomFetchXml
         };
 
         // Paso 1: resolver IDs desde la Vista seleccionada (si aplica)
@@ -243,6 +244,19 @@ public class AuditService : IAuditService
             viewIdsHash = new HashSet<Guid>(objectIds.Count, EqualityComparer<Guid>.Default);
             foreach (var objectId in objectIds)
                 viewIdsHash.Add(objectId);
+        }
+        else if (!string.IsNullOrWhiteSpace(previewRequest.CustomFetchXml))
+        {
+            // Paso 1b: resolver IDs desde FetchXML manual (igual que Vista seleccionada)
+            var fetchIds = await ResolveFetchXmlObjectIdsAsync(previewRequest.CustomFetchXml, cancellationToken);
+            if (fetchIds.Count == 0)
+            {
+                return Array.Empty<AuditExportRow>();
+            }
+
+            viewIdsHash = new HashSet<Guid>(fetchIds.Count, EqualityComparer<Guid>.Default);
+            foreach (var id in fetchIds)
+                viewIdsHash.Add(id);
         }
 
         var rows = new List<AuditExportRow>(maxRows);
@@ -319,6 +333,21 @@ public class AuditService : IAuditService
                 viewIdsHash = new HashSet<Guid>(objectIds.Count, EqualityComparer<Guid>.Default);
                 foreach (var objectId in objectIds)
                     viewIdsHash.Add(objectId);
+            }
+            else if (!string.IsNullOrWhiteSpace(request.CustomFetchXml))
+            {
+                // Paso 1b: resolver IDs desde FetchXML manual (igual que Vista seleccionada)
+                progress?.Report("Ejecutando FetchXML personalizado para obtener registros...");
+                var fetchIds = await ResolveFetchXmlObjectIdsAsync(request.CustomFetchXml, cancellationToken);
+                if (fetchIds.Count == 0)
+                {
+                    progress?.Report("El FetchXML personalizado no devuelve registros. Extracción finalizada.");
+                    return AuditHistoryExtractorPro.Core.Models.ExtractionResult.Ok(0, filePath, "El FetchXML personalizado no devuelve registros.");
+                }
+
+                viewIdsHash = new HashSet<Guid>(fetchIds.Count, EqualityComparer<Guid>.Default);
+                foreach (var id in fetchIds)
+                    viewIdsHash.Add(id);
             }
 
             var totalWritten = 0;
@@ -1261,6 +1290,59 @@ public class AuditService : IAuditService
             "[ResolveViewObjectIds] Vista '{ViewName}' → {Count} registros",
             view.Name, ids.Count);
 
+        return ids;
+    }
+
+    /// <summary>
+    /// Ejecuta un FetchXML paginado (escrito manualmente por el usuario) y devuelve
+    /// todos los IDs de los registros obtenidos. Funciona igual que ResolveViewObjectIdsAsync
+    /// pero recibe directamente el texto del FetchXML en lugar de un ViewDTO.
+    /// </summary>
+    private async Task<IReadOnlyList<Guid>> ResolveFetchXmlObjectIdsAsync(
+        string fetchXml,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(fetchXml) || _serviceClient is null)
+            return Array.Empty<Guid>();
+
+        var ids    = new List<Guid>();
+        var page   = 1;
+        string? cookie = null;
+        bool   more   = true;
+
+        _logger.LogDebug("[ResolveFetchXmlObjectIds] Ejecutando FetchXML manual paginado");
+
+        while (more)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var paged = InjectPagingIntoFetchXml(fetchXml, page, cookie);
+            try
+            {
+                var ec = await ExecuteWithRetryAsync(
+                    () => Task.Run(() =>
+                    {
+                        var req = new RetrieveMultipleRequest { Query = new FetchExpression(paged) };
+                        return ((RetrieveMultipleResponse)_serviceClient.Execute(req)).EntityCollection;
+                    }, cancellationToken),
+                    cancellationToken);
+
+                foreach (var e in ec.Entities)
+                    if (e.Id != Guid.Empty) ids.Add(e.Id);
+
+                more   = ec.MoreRecords;
+                cookie = ec.PagingCookie;
+                page++;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "[ResolveFetchXmlObjectIds] Error en pág {Page}; retornando IDs parciales", page);
+                break;
+            }
+        }
+
+        _logger.LogInformation("[ResolveFetchXmlObjectIds] FetchXML manual → {Count} registros", ids.Count);
         return ids;
     }
 

@@ -29,6 +29,11 @@ public class ExtractionRequest
     /// se ejecuta primero para obtener los IDs de los registros a auditar.</summary>
     public ViewDTO? SelectedView { get; init; }
 
+    /// <summary>FetchXML personalizado (escrito manualmente) para filtrar los registros
+    /// de la entidad antes de consultar auditoría. Se ejecuta igual que SelectedView:
+    /// primero se obtienen los IDs y luego se filtra audit por objectid IN (ids).</summary>
+    public string CustomFetchXml { get; init; } = string.Empty;
+
     public ExtractionCriteria ToCriteria()
     {
         if (string.IsNullOrWhiteSpace(EntityName))

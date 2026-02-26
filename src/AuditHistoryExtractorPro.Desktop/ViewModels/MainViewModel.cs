@@ -283,7 +283,8 @@ public partial class MainViewModel : ObservableObject
                 EndDate = BuildEndDateTime(),
                 SelectedView = SelectedView,
                 CompatibilityMode = CompatibilityMode,
-                LegacyComparisonFilePath = LegacyComparisonFilePath?.Trim() ?? string.Empty
+                LegacyComparisonFilePath = LegacyComparisonFilePath?.Trim() ?? string.Empty,
+                CustomFetchXml = ManualFetchXml?.Trim() ?? string.Empty
             };
 
             var progress = new Progress<string>(message =>
@@ -369,7 +370,8 @@ public partial class MainViewModel : ObservableObject
                 StartDate          = BuildStartDateTime(),
                 EndDate            = BuildEndDateTime(),
                 SelectedView       = SelectedView,
-                CompatibilityMode  = CompatibilityMode
+                CompatibilityMode  = CompatibilityMode,
+                CustomFetchXml     = ManualFetchXml?.Trim() ?? string.Empty
             };
 
             // Ejecutar en hilo de fondo — UI sigue respondiendo.
