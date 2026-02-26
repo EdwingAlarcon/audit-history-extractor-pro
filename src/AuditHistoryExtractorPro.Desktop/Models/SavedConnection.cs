@@ -12,6 +12,7 @@ public sealed class SavedConnection
     public string ConnectionName { get; set; } = string.Empty;
     public string Url { get; set; } = string.Empty;
     public string ServiceUrl => NormalizeServiceUrl(Url);
+    public bool RememberPassword { get; set; }
     public bool IsProduction
     {
         get

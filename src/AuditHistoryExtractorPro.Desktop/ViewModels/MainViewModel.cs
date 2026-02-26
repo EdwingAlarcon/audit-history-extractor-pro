@@ -11,6 +11,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Windows;
 
 namespace AuditHistoryExtractorPro.Desktop.ViewModels;
@@ -24,6 +25,7 @@ public partial class MainViewModel : ObservableObject
     private readonly ConnectionProvider _connectionProvider;
     private readonly ILogger<MainViewModel> _logger;
     private CancellationTokenSource? _userSearchCts;
+    private CancellationTokenSource? _runCts;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(PreviewCommand))]
@@ -34,6 +36,7 @@ public partial class MainViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
     [NotifyCanExecuteChangedFor(nameof(ExtractCommand))]
     [NotifyCanExecuteChangedFor(nameof(PreviewCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
     private bool isBusy;
 
     [ObservableProperty]
@@ -53,6 +56,9 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     private string profileCredential = string.Empty;
+
+    [ObservableProperty]
+    private bool rememberCredential;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(DeleteProfileCommand))]
@@ -266,6 +272,7 @@ public partial class MainViewModel : ObservableObject
 
         try
         {
+            var cancellationToken = StartNewRunCancellation();
             var request = new ExtractionRequest
             {
                 EntityName = EntityName,
@@ -305,7 +312,7 @@ public partial class MainViewModel : ObservableObject
                 }
             });
 
-            var result = await _auditService.ExtractAuditHistoryAsync(request, OutputPath, progress);
+            var result = await _auditService.ExtractAuditHistoryAsync(request, OutputPath, progress, cancellationToken);
             if (!result.Success)
             {
                 StatusMessage = result.Message;
@@ -330,9 +337,15 @@ public partial class MainViewModel : ObservableObject
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
         }
+        catch (OperationCanceledException)
+        {
+            ProgressValue = 0;
+            StatusMessage = "Extracción cancelada por el usuario.";
+        }
         finally
         {
             IsBusy = false;
+            ClearRunCancellation();
         }
     }
 
@@ -354,6 +367,7 @@ public partial class MainViewModel : ObservableObject
 
         try
         {
+            var cancellationToken = StartNewRunCancellation();
             var request = new ExtractionRequest
             {
                 EntityName         = EntityName,
@@ -376,7 +390,8 @@ public partial class MainViewModel : ObservableObject
 
             // Ejecutar en hilo de fondo — UI sigue respondiendo.
             var rows = await Task.Run(
-                () => _auditService.GetPreviewRowsAsync(request, PreviewLimit));
+                () => _auditService.GetPreviewRowsAsync(request, PreviewLimit, cancellationToken),
+                cancellationToken);
 
             // ── DIAGNÓSTICO: conteo estricto antes de tocar la UI ────────────
             var count = rows?.Count ?? 0;
@@ -396,6 +411,7 @@ public partial class MainViewModel : ObservableObject
                     "Sin Resultados",
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
+                ClearRunCancellation();
                 return;
             }
 
@@ -431,9 +447,15 @@ public partial class MainViewModel : ObservableObject
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
         }
+        catch (OperationCanceledException)
+        {
+            ProgressValue = 0;
+            StatusMessage = "Vista previa cancelada por el usuario.";
+        }
         finally
         {
             IsBusy = false;
+            ClearRunCancellation();
         }
     }
 
@@ -517,7 +539,8 @@ public partial class MainViewModel : ObservableObject
 
         ProfileName = value.ConnectionName;
         ProfileUserName = value.User;
-        ProfileCredential = value.Password;
+        RememberCredential = value.RememberPassword || !string.IsNullOrWhiteSpace(value.Password);
+        ProfileCredential = RememberCredential ? value.Password : string.Empty;
         CrmUrl = value.ServiceUrl;
     }
 
@@ -958,7 +981,8 @@ public partial class MainViewModel : ObservableObject
             ConnectionName = normalizedName,
             Url = normalizedUrl,
             User = ProfileUserName.Trim(),
-            Password = ProfileCredential,
+            Password = RememberCredential ? ProfileCredential : string.Empty,
+            RememberPassword = RememberCredential,
             EnvironmentType = ResolveEnvironmentType(normalizedUrl),
             LastUsed = markAsUsed ? DateTime.UtcNow : SelectedConnectionProfile?.LastUsed ?? DateTime.UtcNow
         };
@@ -1030,5 +1054,33 @@ public partial class MainViewModel : ObservableObject
     {
         var invalid = System.IO.Path.GetInvalidFileNameChars();
         return string.Concat(name.Select(c => invalid.Contains(c) ? '_' : c));
+    }
+
+    private bool CanCancel() => IsBusy;
+
+    [RelayCommand(CanExecute = nameof(CanCancel))]
+    private void Cancel()
+    {
+        if (_runCts is null || _runCts.IsCancellationRequested)
+        {
+            return;
+        }
+
+        StatusMessage = "Cancelando...";
+        _runCts.Cancel();
+    }
+
+    private CancellationToken StartNewRunCancellation()
+    {
+        _runCts?.Cancel();
+        _runCts?.Dispose();
+        _runCts = new CancellationTokenSource();
+        return _runCts.Token;
+    }
+
+    private void ClearRunCancellation()
+    {
+        _runCts?.Dispose();
+        _runCts = null;
     }
 }

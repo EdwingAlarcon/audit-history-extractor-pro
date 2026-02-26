@@ -1,7 +1,6 @@
+using AuditHistoryExtractorPro.Desktop.Helpers;
 using AuditHistoryExtractorPro.Desktop.Models;
 using System.IO;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 
 namespace AuditHistoryExtractorPro.Desktop.Services;
@@ -12,8 +11,6 @@ public sealed class ConnectionProvider
     {
         WriteIndented = true
     };
-
-    private static readonly byte[] DpapiEntropy = Encoding.UTF8.GetBytes("AuditHistoryExtractorPro::SavedConnections::v1");
 
     private readonly string _filePath;
     private readonly string _legacyProfilesFilePath;
@@ -41,7 +38,8 @@ public sealed class ConnectionProvider
         foreach (var connection in persisted)
         {
             connection.Url = SavedConnection.NormalizeServiceUrl(connection.Url);
-            connection.Password = Unprotect(connection.Password);
+            connection.Password = SecurityHelper.UnprotectString(connection.Password);
+            connection.RememberPassword = connection.RememberPassword || !string.IsNullOrWhiteSpace(connection.Password);
         }
 
         return persisted
@@ -54,13 +52,16 @@ public sealed class ConnectionProvider
     {
         var all = (await LoadRawConnections(cancellationToken)).ToList();
 
-        var encryptedPassword = Protect(connection.Password);
+        var encryptedPassword = connection.RememberPassword
+            ? SecurityHelper.ProtectString(connection.Password)
+            : string.Empty;
         var normalized = new SavedConnection
         {
             ConnectionName = connection.ConnectionName,
             Url = SavedConnection.NormalizeServiceUrl(connection.Url),
             User = connection.User,
             Password = encryptedPassword,
+            RememberPassword = connection.RememberPassword,
             EnvironmentType = connection.EnvironmentType,
             LastUsed = connection.LastUsed
         };
@@ -79,6 +80,7 @@ public sealed class ConnectionProvider
             existing.Url = normalized.Url;
             existing.User = normalized.User;
             existing.Password = normalized.Password;
+            existing.RememberPassword = normalized.RememberPassword;
             existing.EnvironmentType = normalized.EnvironmentType;
             existing.LastUsed = normalized.LastUsed;
         }
@@ -122,37 +124,6 @@ public sealed class ConnectionProvider
         await JsonSerializer.SerializeAsync(stream, connections, JsonOptions, cancellationToken);
     }
 
-    private static string Protect(string plain)
-    {
-        if (string.IsNullOrWhiteSpace(plain))
-        {
-            return string.Empty;
-        }
-
-        var bytes = Encoding.UTF8.GetBytes(plain);
-        var encrypted = ProtectedData.Protect(bytes, DpapiEntropy, DataProtectionScope.CurrentUser);
-        return Convert.ToBase64String(encrypted);
-    }
-
-    private static string Unprotect(string encryptedBase64)
-    {
-        if (string.IsNullOrWhiteSpace(encryptedBase64))
-        {
-            return string.Empty;
-        }
-
-        try
-        {
-            var encrypted = Convert.FromBase64String(encryptedBase64);
-            var plain = ProtectedData.Unprotect(encrypted, DpapiEntropy, DataProtectionScope.CurrentUser);
-            return Encoding.UTF8.GetString(plain);
-        }
-        catch
-        {
-            return string.Empty;
-        }
-    }
-
     private async Task MigrateLegacyConnectionsIfNeeded(CancellationToken cancellationToken)
     {
         // Caso A: aún no existe connections.json moderno, pero sí existe el archivo
@@ -167,7 +138,8 @@ public sealed class ConnectionProvider
                     ConnectionName = lp.Name,
                     Url = SavedConnection.NormalizeServiceUrl(lp.Url),
                     User = lp.UserName,
-                    Password = Protect(lp.Credential),
+                    Password = SecurityHelper.ProtectString(lp.Credential),
+                    RememberPassword = !string.IsNullOrWhiteSpace(lp.Credential),
                     EnvironmentType = ResolveEnvironmentType(lp.Url, null),
                     LastUsed = lp.LastUsed
                 }).ToList();
@@ -205,7 +177,8 @@ public sealed class ConnectionProvider
                 ConnectionName = lp.Name,
                 Url = SavedConnection.NormalizeServiceUrl(lp.Url),
                 User = lp.UserName,
-                Password = Protect(lp.Credential),
+                Password = SecurityHelper.ProtectString(lp.Credential),
+                RememberPassword = !string.IsNullOrWhiteSpace(lp.Credential),
                 EnvironmentType = ResolveEnvironmentType(lp.Url, null),
                 LastUsed = lp.LastUsed
             }).ToList();
@@ -223,7 +196,9 @@ public sealed class ConnectionProvider
             // si viene vacío, se cifra el fallback Credential.
             Password = !string.IsNullOrWhiteSpace(ls.EncryptedPassword)
                 ? ls.EncryptedPassword
-                : Protect(ls.Credential),
+                : SecurityHelper.ProtectString(ls.Credential),
+            RememberPassword = !string.IsNullOrWhiteSpace(ls.EncryptedPassword)
+                || !string.IsNullOrWhiteSpace(ls.Credential),
             EnvironmentType = ResolveEnvironmentType(ls.ServiceUrl, ls.EnvironmentColor),
             LastUsed = ls.LastUsed
         }).ToList();
