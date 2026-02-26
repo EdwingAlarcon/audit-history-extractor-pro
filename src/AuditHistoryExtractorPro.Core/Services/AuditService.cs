@@ -1688,7 +1688,7 @@ public class AuditService : IAuditService
     // Mapeo del campo 'action' de Dataverse (audit_action) según referencia oficial.
     // Códigos fuera del enum: "Acción Desconocida (ID)".
     // ─────────────────────────────────────────────────────────────────────────────
-    private static string GetAuditActionName(int code)
+    public static string GetAuditActionName(int code)
     {
         if (!Enum.IsDefined(typeof(AuditAction), code))
         {
@@ -1788,7 +1788,7 @@ public class AuditService : IAuditService
     // ─────────────────────────────────────────────────────────────────────────────
     // Mapeo del campo 'operation' de Dataverse (tipo de operación DML).
     // ─────────────────────────────────────────────────────────────────────────────
-    private static string GetAuditOperationName(int code) => code switch
+    public static string GetAuditOperationName(int code) => code switch
     {
         1 => "Create",
         2 => "Update",

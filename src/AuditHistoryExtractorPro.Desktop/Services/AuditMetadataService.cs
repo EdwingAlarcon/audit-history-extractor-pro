@@ -1,4 +1,5 @@
 using AuditHistoryExtractorPro.Core.Models;
+using AuditHistoryExtractorPro.Core.Services;
 using AuditHistoryExtractorPro.Desktop.Models;
 
 namespace AuditHistoryExtractorPro.Desktop.Services;
@@ -14,7 +15,7 @@ public static class AuditMetadataService
             .Select(value => new CheckableItem<AuditOperation>
             {
                 Value = value,
-                Label = value.ToString(),
+                Label = AuditService.GetAuditOperationName((int)value),
                 IsSelected = false
             })
             .ToList();
@@ -26,7 +27,7 @@ public static class AuditMetadataService
             .Select(value => new CheckableItem<AuditAction>
             {
                 Value = value,
-                Label = value.ToString(),
+                Label = AuditService.GetAuditActionName((int)value),
                 IsSelected = false
             })
             .ToList();
