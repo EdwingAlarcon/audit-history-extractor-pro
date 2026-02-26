@@ -10,6 +10,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Text.RegularExpressions;
 using System.Windows;
 
 namespace AuditHistoryExtractorPro.Desktop.ViewModels;
@@ -164,7 +165,7 @@ public partial class MainViewModel : ObservableObject
 
         try
         {
-            var normalizedUrl = SavedConnection.NormalizeServiceUrl(CrmUrl);
+            var normalizedUrl = ExtractServiceUrlFromComboText(CrmUrl);
             var settings = new ConnectionSettings
             {
                 EnvironmentUrl = normalizedUrl
@@ -940,7 +941,7 @@ public partial class MainViewModel : ObservableObject
 
     private async Task SaveOrUpdateCurrentProfileAsync(bool markAsUsed)
     {
-        var normalizedUrl = SavedConnection.NormalizeServiceUrl(CrmUrl);
+        var normalizedUrl = ExtractServiceUrlFromComboText(CrmUrl);
         if (string.IsNullOrWhiteSpace(normalizedUrl))
         {
             return;
@@ -994,6 +995,30 @@ public partial class MainViewModel : ObservableObject
         }
 
         return "Perfil";
+    }
+
+    private static string ExtractServiceUrlFromComboText(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = raw.Trim();
+        var regexMatch = Regex.Match(trimmed, @"\((https?://[^\)]+)\)", RegexOptions.IgnoreCase);
+        if (regexMatch.Success)
+        {
+            return regexMatch.Groups[1].Value.Trim();
+        }
+
+        var open = trimmed.LastIndexOf('(');
+        var close = trimmed.LastIndexOf(')');
+        if (open >= 0 && close > open)
+        {
+            return trimmed.Substring(open + 1, close - open - 1).Trim();
+        }
+
+        return SavedConnection.NormalizeServiceUrl(trimmed);
     }
 
     /// <summary>

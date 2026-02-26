@@ -51,6 +51,9 @@
                         <DataTrigger Binding="{Binding SelectedConnectionProfile.EnvironmentType}" Value="{x:Static models:EnvironmentType.Prod}">
                             <Setter Property="Background" Value="#0078D4" />
                         </DataTrigger>
+                        <DataTrigger Binding="{Binding SelectedConnectionProfile.IsProduction}" Value="True">
+                            <Setter Property="Background" Value="#E74C3C" />
+                        </DataTrigger>
                     </Style.Triggers>
                 </Style>
             </Border.Style>

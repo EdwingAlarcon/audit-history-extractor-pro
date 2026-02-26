@@ -12,6 +12,15 @@ public sealed class SavedConnection
     public string ConnectionName { get; set; } = string.Empty;
     public string Url { get; set; } = string.Empty;
     public string ServiceUrl => NormalizeServiceUrl(Url);
+    public bool IsProduction
+    {
+        get
+        {
+            var name = ConnectionName ?? string.Empty;
+            return name.Contains("produccion", StringComparison.OrdinalIgnoreCase)
+                || name.Contains("producción", StringComparison.OrdinalIgnoreCase);
+        }
+    }
     public string User { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
     public EnvironmentType EnvironmentType { get; set; } = EnvironmentType.Prod;
