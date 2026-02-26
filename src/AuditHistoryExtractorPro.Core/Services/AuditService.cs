@@ -590,34 +590,6 @@ public class AuditService : IAuditService
     /// modo de rescate: itera registro a registro (pageSize=1) para recuperar
     /// los registros sanos e ignorar los corruptos sin abortar la extracción.
     /// </summary>
-    // ─────────────────────────────────────────────────────────────────────────
-    // CAPA DE SEGURIDAD: BuildBaseAuditQuery
-    // ─────────────────────────────────────────────────────────────────────────
-    // Este método es la ÚNICA entrada para construir consultas a la tabla audit
-    // en AuditService. Su responsabilidad es doble:
-    //
-    //  1. Delegar en QueryBuilderService.BuildQueryExpression el grueso de los
-    //     filtros (objecttypecode, operaciones, acciones, usuario, objectid IN,
-    //     paginación y orden).
-    //
-    //  2. Aplicar como SEGUNDA CAPA BLINDADA las condiciones de fecha (createdon)
-    //     cuando el usuario eligió un rango personalizado (DateRangeFilter.Personalizado
-    //     + StartDate/EndDate explícitos). Esto garantiza que NINGÚN lote de IDs
-    //     (chunk de 500) viaje a Dataverse sin su candado temporal, incluso si
-    //     ResolveDateRange falla silenciosamente en el futuro.
-    //
-    // Para presets (Hoy/Semana/Mes) y Todo, QueryBuilderService ya gestiona las
-    // fechas sin leer StartDate/EndDate, por lo que esta capa no interfiere.
-    private QueryExpression BuildBaseAuditQuery(
-        AuditQueryFilters filters,
-        int pageNumber,
-        string? pagingCookie,
-        int pageSize)
-    {
-        // Fuente única de filtros para evitar redundancia (especialmente createdon).
-        return _queryBuilderService.BuildQueryExpression(filters, pageNumber, pagingCookie, pageSize);
-    }
-
     private async Task<PageResult> FetchPageWithFallbackAsync(
         AuditQueryFilters filters,
         int pageNumber,
@@ -626,35 +598,28 @@ public class AuditService : IAuditService
         IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
-        // ── RUTA PRINCIPAL ──────────────────────────────────────────────────────────
-        // Usando Execute(RetrieveMultipleRequest) en lugar de RetrieveMultiple:
-        // en algunas versiones del SDK, Execute omite las validaciones agresivas
-        // del MetadataCache del cliente que causan FaultException en entidades
-        // con LogicalNames corruptos (ej. "Concepto Factura" con espacios).
-        // BuildBaseAuditQuery = QueryBuilderService + segunda capa de fechas.
-        var query = BuildBaseAuditQuery(filters, pageNumber, pagingCookie, pageSize);
+        // ── RUTA PRINCIPAL: FetchXML directo (FetchExpression) ──────────────────────
+        // Motivo del cambio de QueryExpression a FetchExpression:
+        // La tabla 'audit' almacena 'objecttypecode' como un campo picklist (entero).
+        // Cuando se envía un QueryExpression con el valor string "sp_conceptofactura",
+        // Dataverse NO resuelve el nombre lógico al código entero → 0 resultados.
+        // Con FetchExpression, Dataverse SÍ resuelve el string al código en server-side,
+        // igual que lo hace QueryExpressionToFetchXmlRequest (que mostraba el valor
+        // correcto "10142" en los logs pero cuya conversión NO se reutilizaba).
+        // Adicionalmente, FetchXML usa 'on-or-after'/'on-or-before' para fechas,
+        // que manejan timezone mejor que 'ge'/'le' con datetime completo.
+        var fetchXml = _queryBuilderService.BuildFetchXml(filters, pageNumber, pageSize, pagingCookie);
 
-        // ── TELEMETRÍA: imprimir la consulta como FetchXML antes de enviarla ──────
-        try
-        {
-            var toFetchReq = new QueryExpressionToFetchXmlRequest { Query = query };
-            var toFetchRes = (QueryExpressionToFetchXmlResponse)_serviceClient!.Execute(toFetchReq);
-            _logger.LogDebug(
-                "[FetchPage] Pág={Page} PageSize={PageSize} FetchXML=\n{FetchXml}",
-                pageNumber, pageSize, toFetchRes.FetchXml);
-        }
-        catch (Exception telEx)
-        {
-            _logger.LogDebug(telEx, "[FetchPage] No se pudo convertir QueryExpression a FetchXML (solo diagnóstico)");
-        }
-        // ─────────────────────────────────────────────────────────────────────
+        _logger.LogDebug(
+            "[FetchPage] Pág={Page} PageSize={PageSize} FetchXML=\n{FetchXml}",
+            pageNumber, pageSize, fetchXml);
 
         try
         {
             var ec = await ExecuteWithRetryAsync(
                 () => Task.Run(() =>
                 {
-                    var req = new RetrieveMultipleRequest { Query = query };
+                    var req = new RetrieveMultipleRequest { Query = new FetchExpression(fetchXml) };
                     var res = (RetrieveMultipleResponse)_serviceClient!.Execute(req);
                     return res.EntityCollection;
                 }, cancellationToken),
@@ -689,14 +654,12 @@ public class AuditService : IAuditService
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // BuildBaseAuditQuery garantiza fechas blindadas también en el
-                // fallback paging 1x1 (cada sub-consulta recupera 1 registro).
-                var subQuery = BuildBaseAuditQuery(filters, subPage, subCookie, 1);
+                var subFetchXml = _queryBuilderService.BuildFetchXml(filters, subPage, 1, subCookie);
                 try
                 {
                     var subEc = await Task.Run(() =>
                     {
-                        var req = new RetrieveMultipleRequest { Query = subQuery };
+                        var req = new RetrieveMultipleRequest { Query = new FetchExpression(subFetchXml) };
                         var res = (RetrieveMultipleResponse)_serviceClient!.Execute(req);
                         return res.EntityCollection;
                     }, cancellationToken);
