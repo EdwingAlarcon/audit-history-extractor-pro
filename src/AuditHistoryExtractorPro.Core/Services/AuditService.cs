@@ -415,6 +415,23 @@ public class AuditService : IAuditService
         Action<int> updateCount,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        // ── Modo Vista / FetchXML manual: rutear a consulta por objectid IN ─────────────
+        // Cuando se dispone de un HashSet de IDs (desde Vista o FetchXML manual),
+        // se usa StreamRowsByObjectIdChunksAsync que consulta audit directamente
+        // por objectid IN (lotes de 500) SIN filtrar por objecttypecode.
+        // Motivo: los registros de auditoría legacy pueden tener un objecttypecode
+        // diferente al código actual de la entidad; filtrar por objecttypecode
+        // descarta esos registros y produce un recuento incorrecto (≈50% del real).
+        if (viewIdsHash != null && viewIdsHash.Count > 0)
+        {
+            await foreach (var row in StreamRowsByObjectIdChunksAsync(
+                request, viewIdsHash, progress, updateCount, cancellationToken))
+            {
+                yield return row;
+            }
+            yield break;
+        }
+
         var totalWritten = 0;
         var pageNumber = 1;
         string? pagingCookie = null;
@@ -581,6 +598,167 @@ public class AuditService : IAuditService
             progress?.Report($"Página {currentPage} procesada. Total acumulado: {totalWritten} filas.");
         }
         while (hasMore && totalWritten < request.MaxRecords && !cancellationToken.IsCancellationRequested);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // MODO VISTA: Consulta directa por objectid IN (paridad con app legacy)
+    // Consulta audit filtrando por objectid IN (lotes de 500) en lugar de
+    // objecttypecode. Esto garantiza recuperar TODOS los registros de audítoría
+    // de esos objetos independientemente del código almacenado (que puede
+    // diferir entre registros legados y nuevos de la misma entidad).
+    // ─────────────────────────────────────────────────────────────────────────
+    private async IAsyncEnumerable<AuditExportRow> StreamRowsByObjectIdChunksAsync(
+        ExtractionRequest request,
+        HashSet<Guid> viewIdsHash,
+        IProgress<string>? progress,
+        Action<int> updateCount,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var totalWritten = 0;
+        var selectedAttributes = new HashSet<string>(request.SelectedAttributes, StringComparer.OrdinalIgnoreCase);
+        var searchValue = request.SearchValue?.Trim() ?? string.Empty;
+
+        // Partir los IDs de la Vista en lotes de máx. 500 (límite práctico de Dataverse IN).
+        // .Chunk() es .NET 6+; dado que el proyecto es .NET 8, es seguro utilizarlo.
+        var chunks = viewIdsHash.Chunk(500).ToList();
+
+        _logger.LogInformation(
+            "[StreamRowsByChunks] Vista con {Total} IDs dividida en {Chunks} lote(s) de ≤500",
+            viewIdsHash.Count, chunks.Count);
+
+        for (var chunkIdx = 0; chunkIdx < chunks.Count; chunkIdx++)
+        {
+            if (totalWritten >= request.MaxRecords) yield break;
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var chunk = chunks[chunkIdx];
+            progress?.Report($"Lote {chunkIdx + 1}/{chunks.Count} ({chunk.Length} registros)...");
+
+            // SIN objecttypecode — se filtra por objectid IN directamente.
+            // EntityName vacío = QueryBuilderService no añade condición objecttypecode.
+            var filters = new AuditQueryFilters
+            {
+                EntityName        = string.Empty,  // No filtrar por objecttypecode (usa objectid IN)
+                EntityTypeCode    = null,
+                SelectedDateRange = request.SelectedDateRange,
+                SelectedDateFrom  = request.SelectedDateFrom,
+                SelectedDateTo    = request.SelectedDateTo,
+                IsFullDay         = request.IsFullDay,
+                SelectedUser      = request.SelectedUser,
+                SelectedOperation  = request.CompatibilityMode ? null : request.SelectedOperation,
+                SelectedOperations = request.CompatibilityMode ? Array.Empty<int>() : request.SelectedOperations,
+                SelectedActions    = request.CompatibilityMode ? Array.Empty<int>() : request.SelectedActions,
+                SelectedAttributes = request.SelectedAttributes,
+                SearchValue        = request.SearchValue,
+                RecordId           = string.Empty,
+                StartDate          = request.StartDate,
+                EndDate            = request.EndDate,
+                ObjectIds          = chunk  // ← el filtro principal: objectid IN (chunk)
+            };
+
+            var pageNumber   = 1;
+            string? pagingCookie = null;
+            bool hasMore;
+
+            do
+            {
+                if (totalWritten >= request.MaxRecords) yield break;
+                cancellationToken.ThrowIfCancellationRequested();
+
+                _currentProgress = progress;
+                var page = await FetchPageWithFallbackAsync(
+                    filters, pageNumber, pagingCookie, MaxDataversePageSize, progress, cancellationToken);
+
+                hasMore      = page.MoreRecords;
+                pagingCookie = page.NextPagingCookie;
+
+                _logger.LogInformation(
+                    "[StreamRowsByChunks] Lote={Chunk}/{Total} Pág={Page} | Brutos={Raw} | MoreRecords={More} | TotalAcum={TotalWritten}",
+                    chunkIdx + 1, chunks.Count, pageNumber, page.Entities.Count, hasMore, totalWritten);
+
+                pageNumber++;
+
+                if (page.Entities.Count == 0) continue;
+
+                // objectid IN ya filtra en Dataverse — no se necesita intersección en memoria.
+                var stopped = false;
+                foreach (var entity in page.Entities)
+                {
+                    if (stopped || totalWritten >= request.MaxRecords) break;
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var entityRows = new List<AuditExportRow>(4);
+                    try
+                    {
+                        await foreach (var detailRow in BuildDetailRowsAsync(entity, selectedAttributes, cancellationToken))
+                        {
+                            if (MatchesSearchValue(detailRow, searchValue))
+                                entityRows.Add(detailRow);
+                        }
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception entityEx)
+                    {
+                        var rawAuditId = entity.Contains("auditid")
+                            ? entity.GetAttributeValue<Guid>("auditid").ToString()
+                            : entity.Id.ToString();
+                        _logger.LogWarning(entityEx,
+                            "[StreamRowsByChunks] Error en BuildDetailRowsAsync auditid={AuditId} — emitiendo fila de rescate",
+                            rawAuditId);
+                        if (entityRows.Count == 0)
+                        {
+                            entityRows.Add(new AuditExportRow
+                            {
+                                AuditId        = rawAuditId,
+                                CreatedOn      = string.Empty,
+                                EntityName     = "[Error Interno — ver log]",
+                                LogicalName    = string.Empty,
+                                RecordId       = string.Empty,
+                                RecordKeyValue = string.Empty,
+                                RecordUrl      = string.Empty,
+                                ActionCode     = 0,
+                                ActionName     = "[Error Interno]",
+                                OperationId    = 0,
+                                Operation      = string.Empty,
+                                UserId         = string.Empty,
+                                UserName       = "[Error Interno]",
+                                RealActor      = "[Error Interno]",
+                                TransactionId  = string.Empty,
+                                ChangedField   = "[Error Interno]",
+                                OldValue       = "[Error al mapear — ver log]",
+                                NewValue       = $"[{entityEx.GetType().Name}: {entityEx.Message}]",
+                                LookupOldValue = string.Empty,
+                                LookupNewValue = string.Empty
+                            });
+                        }
+                    }
+
+                    foreach (var row in entityRows)
+                    {
+                        totalWritten++;
+                        updateCount(totalWritten);
+                        yield return row;
+
+                        if (totalWritten >= request.MaxRecords)
+                        {
+                            stopped = true;
+                            break;
+                        }
+                    }
+
+                    if (stopped) break;
+                }
+
+                if (stopped) yield break;
+
+                progress?.Report($"Lote {chunkIdx + 1}, página {pageNumber - 1} procesada. Total: {totalWritten} filas.");
+            }
+            while (hasMore && totalWritten < request.MaxRecords && !cancellationToken.IsCancellationRequested);
+        }
+
+        _logger.LogInformation(
+            "[StreamRowsByChunks] Completado — {Total} filas extraídas de {Chunks} lote(s)",
+            totalWritten, chunks.Count);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
