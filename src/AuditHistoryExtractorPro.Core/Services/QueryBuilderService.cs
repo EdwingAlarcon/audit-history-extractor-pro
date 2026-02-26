@@ -214,11 +214,15 @@ public class QueryBuilderService
         }
 
         // objectid IN — lote de IDs resueltos desde una Vista (max. 500/chunk).
-        // Ruta de paridad con BuildAuditQuery para que el fallback FetchXml también
-        // respete el filtro de IDs cuando StreamAllChunksAsync llama a esta ruta.
+        // uitype especifica la entidad del lookup polimórfico; Dataverse require
+        // este atributo para resolver correctamente GUIDs en la tabla 'audit'.
+        // Sin uitype, la condición IN puede devolver 0 resultados aunque los GUIDs existan.
         if (filters.ObjectIds.Count > 0)
         {
-            sb.Append("      <condition attribute='objectid' operator='in'>\n");
+            var uitypeAttr = string.IsNullOrWhiteSpace(filters.ObjectIdsEntityType)
+                ? string.Empty
+                : $" uitype='{System.Security.SecurityElement.Escape(filters.ObjectIdsEntityType.Trim().ToLowerInvariant())}'";
+            sb.Append($"      <condition attribute='objectid' operator='in'{uitypeAttr}>\n");
             foreach (var id in filters.ObjectIds)
                 sb.Append($"        <value>{id:D}</value>\n");
             sb.Append("      </condition>\n");

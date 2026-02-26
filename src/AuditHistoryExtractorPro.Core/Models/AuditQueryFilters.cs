@@ -20,6 +20,12 @@ public class AuditQueryFilters
     /// Vacío = sin restricción por IDs.</summary>
     public IReadOnlyList<Guid> ObjectIds { get; init; } = Array.Empty<Guid>();
 
+    /// <summary>Nombre lógico de la entidad al que apuntan los <see cref="ObjectIds"/>.
+    /// Se usa como atributo uitype='' en la condición objectid IN del FetchXML.
+    /// Dataverse requiere uitype para resolver correctamente lookups polimórficos.
+    /// Vacío = no se agrega uitype (puede causar resultados incompletos).</summary>
+    public string ObjectIdsEntityType { get; init; } = string.Empty;
+
     /// <summary>Código de tipo de entidad (ObjectTypeCode) resuelto desde Dataverse.
     /// Cuando se proporciona, se usa directamente como entero en la condición
     /// 'objecttypecode' del FetchXML. Null = fallback al nombre lógico (menos fiable).</summary>

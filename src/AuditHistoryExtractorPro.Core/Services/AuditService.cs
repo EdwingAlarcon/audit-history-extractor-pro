@@ -636,10 +636,13 @@ public class AuditService : IAuditService
 
             // SIN objecttypecode — se filtra por objectid IN directamente.
             // EntityName vacío = QueryBuilderService no añade condición objecttypecode.
+            // ObjectIdsEntityType pasa el nombre lógico para el atributo uitype del IN,
+            // necesario para resolver el lookup polimórfico 'objectid' en la tabla audit.
             var filters = new AuditQueryFilters
             {
                 EntityName        = string.Empty,  // No filtrar por objecttypecode (usa objectid IN)
                 EntityTypeCode    = null,
+                ObjectIdsEntityType = request.EntityName,  // uitype para lookup polimórfico
                 SelectedDateRange = request.SelectedDateRange,
                 SelectedDateFrom  = request.SelectedDateFrom,
                 SelectedDateTo    = request.SelectedDateTo,
