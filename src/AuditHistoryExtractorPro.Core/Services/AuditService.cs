@@ -1953,99 +1953,12 @@ public class AuditService : IAuditService
     // Mapeo del campo 'action' de Dataverse (audit_action) según referencia oficial.
     // Códigos fuera del enum: "Acción Desconocida (ID)".
     // ─────────────────────────────────────────────────────────────────────────────
-    public static string GetAuditActionName(int code)
-    {
-        if (!Enum.IsDefined(typeof(AuditAction), code))
-        {
-            return $"Acción Desconocida ({code})";
-        }
-
-        return code switch
-        {
-            0  => "Unknown",
-            1  => "Create",
-            2  => "Update",
-            3  => "Delete",
-            4  => "Activate",
-            5  => "Deactivate",
-            6  => "Upsert",
-            11 => "Cascade",
-            12 => "Merge",
-            13 => "Assign",
-            14 => "Share",
-            15 => "Unshare",
-            16 => "Close",
-            17 => "Cancel",
-            18 => "Complete",
-            20 => "Resolve",
-            21 => "Reopen",
-            22 => "Fulfill",
-            23 => "Paid",
-            24 => "Qualify",
-            25 => "Disqualify",
-            26 => "Send",
-            27 => "Reject",
-            28 => "Approve",
-            29 => "Invoice",
-            30 => "Set State",
-            31 => "Add Member",
-            32 => "Remove Member",
-            33 => "Associate Entities",
-            34 => "Disassociate Entities",
-            35 => "Add Members",
-            36 => "Remove Members",
-            37 => "Add Item",
-            38 => "Remove Item",
-            39 => "Add Substitute",
-            40 => "Remove Substitute",
-            41 => "Set State",
-            42 => "Renew",
-            43 => "Revise",
-            44 => "Win",
-            45 => "Lose",
-            46 => "Internal Processing",
-            47 => "Reschedule",
-            48 => "Modify Share",
-            49 => "Unshare",
-            50 => "Book",
-            51 => "Generate Quote From Opportunity",
-            52 => "Add To Queue",
-            53 => "Assign Role To Team",
-            54 => "Remove Role From Team",
-            55 => "Assign Role To User",
-            56 => "Remove Role From User",
-            57 => "Add Privileges To Role",
-            58 => "Remove Privileges From Role",
-            59 => "Replace Privileges In Role",
-            60 => "Import Mappings",
-            61 => "Clone",
-            62 => "Send Direct Email",
-            63 => "Organization Enabled",
-            64 => "User Access Via Web",
-            65 => "User Access Via Web Services",
-            100 => "Delete Entity",
-            101 => "Delete Attribute",
-            102 => "Audit Change At Entity Level",
-            103 => "Audit Change At Attribute Level",
-            104 => "Audit Change At Organization Level",
-            105 => "Entity Audit Started",
-            106 => "Attribute Audit Started",
-            107 => "Audit Enabled",
-            108 => "Entity Audit Stopped",
-            109 => "Attribute Audit Stopped",
-            110 => "Audit Disabled",
-            111 => "Audit Log Deletion",
-            112 => "User Access Audit Started",
-            113 => "User Access Audit Stopped",
-            115 => "Archive",
-            116 => "Retain",
-            117 => "RollbackRetain",
-            118 => "IPFirewallAccessDenied",
-            119 => "IPFirewallAccessAllowed",
-            120 => "Restore",
-            _  => $"Acción {code}"
-        };
-    }
+    /// <summary>
+    /// Delegación a <see cref="AuditMetadataLookup.GetActionLabel"/>.
+    /// Retorna la etiqueta en español del campo 'action' de la tabla audit.
+    /// </summary>
+    public static string GetAuditActionName(int code) =>
+        AuditMetadataLookup.GetActionLabel(code);
 
     /// <summary>Backward-compat alias — prefer GetAuditActionName in new code.</summary>
     private static string GetOperationName(int code) => GetAuditActionName(code);
@@ -2053,20 +1966,12 @@ public class AuditService : IAuditService
     // ─────────────────────────────────────────────────────────────────────────────
     // Mapeo del campo 'operation' de Dataverse (tipo de operación DML).
     // ─────────────────────────────────────────────────────────────────────────────
-    public static string GetAuditOperationName(int code) => code switch
-    {
-        1 => "Create",
-        2 => "Update",
-        3 => "Delete",
-        4 => "Access",
-        5 => "Upsert",
-        115 => "Archive",
-        116 => "Retain",
-        117 => "RollbackRetain",
-        118 => "Restore",
-        200 => "CustomOperation",
-        _ => $"Operation_{code}"
-    };
+    /// <summary>
+    /// Delegación a <see cref="AuditMetadataLookup.GetOperationLabel"/>.
+    /// Retorna la etiqueta en español del campo 'operation' de la tabla audit.
+    /// </summary>
+    public static string GetAuditOperationName(int code) =>
+        AuditMetadataLookup.GetOperationLabel(code);
 
     // ─────────────────────────────────────────────────────────────────────────────
     // ExtractLookupName: extrae el Name de un EntityReference.
