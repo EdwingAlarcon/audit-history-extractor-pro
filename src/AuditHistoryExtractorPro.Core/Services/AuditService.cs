@@ -491,25 +491,14 @@ public class AuditService : IAuditService
                 continue;
             }
 
-            var intersectionProgress = progress is null
-                ? null
-                : new Progress<int>(matched =>
-                    progress.Report($"Intersección en memoria: {matched} coincidencias en página {currentPage}..."));
+            // Sin intersección por HashSet: procesar todos los registros devueltos por Dataverse
+            var matchedEntities = page.Entities;
 
-            var (matchedEntities, metrics) = await _auditProcessingService.IntersectPageAsync(
-                page.Entities,
-                viewIdsHash,
-                intersectionProgress,
-                cancellationToken);
-
-            // ── Telemetría de paridad: Brutos / Pasaron HashSet / Descartados / TotalAcum ──
             _logger.LogInformation(
                 "[StreamRows] Pág {Page} | Brutos={Raw} | Pasaron HashSet={Matched} | Descartados={Discarded} | TotalFilasAcum={Total}",
-                currentPage, page.Entities.Count, metrics.Matched, metrics.Discarded, totalWritten);
+                currentPage, page.Entities.Count, page.Entities.Count, 0, totalWritten);
 
             // ── Paso 3: Iterar cada entidad → llamar RetrieveAuditDetailsRequest ─────
-            // No-destructivo: múltiples registros de auditoría para el mismo objectid
-            // pasan todos — el HashSet actúa solo como validador, no como deduplicador.
             var stopped = false;
             foreach (var entity in matchedEntities)
             {

@@ -81,8 +81,9 @@ public static class AuditMetadataLookup
             [61]  = "Clonar",
             [62]  = "Enviar Email Directo",
             [63]  = "Organización Habilitada",
-            [64]  = "Acceso de Usuario vía Web",
-            [65]  = "Acceso de Usuario vía Servicios Web",
+            // Overrides solicitados: mostrar como Facturación y Pago
+            [64]  = "Facturación",
+            [65]  = "Pago",
             [100] = "Eliminar Entidad",
             [101] = "Eliminar Atributo",
             [102] = "Cambio de Auditoría a Nivel de Entidad",

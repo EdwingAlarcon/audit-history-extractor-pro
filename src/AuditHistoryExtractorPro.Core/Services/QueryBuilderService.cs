@@ -245,17 +245,16 @@ public class QueryBuilderService
 
     private static DateTime NormalizeToUtc(DateTime value)
     {
-        return value.Kind switch
-        {
-            DateTimeKind.Utc => value,
-            DateTimeKind.Local => value.ToUniversalTime(),
-            _ => DateTime.SpecifyKind(value, DateTimeKind.Local).ToUniversalTime()
-        };
+        // No aplicar desplazamiento; forzar Kind=Utc para evitar corrimientos de +/− offset
+        return value.Kind == DateTimeKind.Utc
+            ? value
+            : DateTime.SpecifyKind(value, DateTimeKind.Utc);
     }
 
     private static string FormatUtcIso8601(DateTime utc)
     {
-        return utc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
+        // Formato Zulu estricto sin milisegundos ni offset
+        return utc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
     }
 
     private static (DateTime? fromDate, DateTime? toDate) ResolveDateRange(AuditQueryFilters filters)
@@ -276,34 +275,27 @@ public class QueryBuilderService
             if (!explicitFrom.HasValue && !explicitTo.HasValue)
                 return (null, null);
 
-            // Usamos DateTime.SpecifyKind(..., Local) antes de ToUniversalTime()
-            // para eliminar la ambigüedad de Kind=Unspecified que devuelve
-            // DateTime.Date — sin SpecifyKind la conversión depende del entorno.
             if (filters.IsFullDay)
             {
-                // Inicio: medianoche del día seleccionado en hora local → UTC
-                var fromLocal = explicitFrom.HasValue
-                    ? DateTime.SpecifyKind(explicitFrom.Value.Date, DateTimeKind.Local)
+                // Zulu puro: no aplicar offset local; fijar límites exactos en UTC
+                var fromUtc = explicitFrom.HasValue
+                    ? DateTime.SpecifyKind(explicitFrom.Value.Date, DateTimeKind.Utc)
                     : (DateTime?)null;
 
-                // Fin: último instante del día seleccionado en hora local → UTC
-                // Date.AddDays(1).AddTicks(-1) = 23:59:59.9999999 del mismo día
-                var toLocal = explicitTo.HasValue
-                    ? DateTime.SpecifyKind(explicitTo.Value.Date.AddDays(1).AddTicks(-1), DateTimeKind.Local)
+                var toUtc = explicitTo.HasValue
+                    ? DateTime.SpecifyKind(explicitTo.Value.Date.AddDays(1).AddSeconds(-1), DateTimeKind.Utc)
                     : (DateTime?)null;
 
-                return (fromLocal?.ToUniversalTime(), toLocal?.ToUniversalTime());
+                return (fromUtc, toUtc);
             }
 
-            // Rango con hora explícita: el usuario especificó HH:mm
+            // Rango con hora explícita: asumir que el valor ya está en UTC o es absoluto
             var fromExplicit = explicitFrom.HasValue
-                ? DateTime.SpecifyKind(explicitFrom.Value, DateTimeKind.Local).ToUniversalTime()
+                ? DateTime.SpecifyKind(explicitFrom.Value, DateTimeKind.Utc)
                 : (DateTime?)null;
 
-            // Suma :59 segundos al minuto final para cubrir el segundo completo
-            // (evita perder registros creados en :mm:01…:mm:59).
             var toExplicit = explicitTo.HasValue
-                ? DateTime.SpecifyKind(explicitTo.Value.AddSeconds(59), DateTimeKind.Local).ToUniversalTime()
+                ? DateTime.SpecifyKind(explicitTo.Value, DateTimeKind.Utc)
                 : (DateTime?)null;
 
             return (fromExplicit, toExplicit);
