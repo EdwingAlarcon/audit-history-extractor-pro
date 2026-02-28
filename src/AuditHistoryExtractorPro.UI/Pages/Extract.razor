@@ -8,6 +8,10 @@
 @inject ILogger<Extract> Logger
 @inject NavigationManager Navigation
 @inject IAuditService AuditService
+@* Strangler Fig (2026-02-27): ExtractPageCoordinator despacha via MediatR → IAuditRepository.
+   HandleExtractOnClick usa este coordinador en lugar de AuditService.ExtractAuditHistoryAsync()
+   (que llama a CoreAuditService directamente). Primera página migrada al stack limpio. *@
+@inject ExtractPageCoordinator ExtractCoordinator
 
 <PageTitle>Nueva Extracción - Audit History Extractor Pro</PageTitle>
 
@@ -96,10 +100,10 @@
                 {
                     <p><strong>Registros extraídos: @_vm.RecordsExtracted</strong></p>
                 }
-                @if (!isAlertError && !string.IsNullOrWhiteSpace(lastOutputFilePath))
+                @if (!isAlertError && _vm.RecordsExtracted > 0)
                 {
-                    <p><strong>Archivo CSV:</strong> @lastOutputFilePath</p>
-                    <OutputFileActions OnOpenFile="OpenOutputFile" OnOpenFolder="OpenOutputFolder" />
+                    <p>Los registros están disponibles en la página de <strong>Exportación</strong>.</p>
+                    <button class="btn-ms btn-ms-success" @onclick="@(() => Navigation.NavigateTo("/export"))">📤 Ir a Exportar</button>
                 }
             </div>
         }
@@ -126,7 +130,6 @@
     private bool isLoading;
     private string alertMessage = string.Empty;
     private bool isAlertError;
-    private string lastOutputFilePath = string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
@@ -159,22 +162,22 @@
         _vm.ExtractionCts = new CancellationTokenSource();
         alertMessage = string.Empty;
         isAlertError = false;
-        lastOutputFilePath = string.Empty;
 
         try
         {
             AuditService.LastFilters = BuildFiltersSnapshot();
             await AuditService.SaveUserConfigAsync();
 
-            var exportPath = BuildOutputCsvPath(_vm.EntityName);
-            var progress = new Progress<string>(status =>
+            // Strangler Fig: se utiliza ExtractPageCoordinator (MediatR → IAuditRepository → Domain).
+            // Los registros quedan en AuditSessionState; exportar en la página /export.
+            var progress = new Progress<ExtractionProgress>(p =>
             {
-                _vm.StatusMessage = status;
-                UpdateProgressFromStatus(status);
+                _vm.StatusMessage = p.Status;
+                _vm.Progress = (int)Math.Clamp(p.PercentComplete, 1, 99);
                 InvokeAsync(StateHasChanged);
             });
 
-            var result = await AuditService.ExtractAuditHistoryAsync(
+            var result = await ExtractCoordinator.ExecuteAsync(
                 new ExtractInputModel
                 {
                     EntityName = _vm.EntityName,
@@ -186,20 +189,17 @@
                     IncludeDelete = _vm.IncludeDelete,
                     MaxRecords = _vm.MaxRecords
                 },
-                exportPath,
                 progress,
                 _vm.ExtractionCts.Token);
 
             if (result.Success)
             {
                 _vm.RecordsExtracted = result.RecordsExtracted;
-                lastOutputFilePath = result.OutputFilePath;
                 ShowAlert(result.Message, false);
                 _vm.Progress = 100;
             }
             else
             {
-                lastOutputFilePath = string.Empty;
                 ShowAlert(result.Message, true);
             }
         }
@@ -207,13 +207,11 @@
         {
             ShowAlert("⚠️ Extracción cancelada por el usuario.", true);
             _vm.StatusMessage = string.Empty;
-            lastOutputFilePath = string.Empty;
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error durante la extracción");
             ShowAlert($"❌ Error inesperado: {ex.Message}", true);
-            lastOutputFilePath = string.Empty;
         }
         finally
         {
@@ -223,113 +221,11 @@
         }
     }
 
-    private static string BuildOutputCsvPath(string entityName)
-    {
-        var safeEntity = string.IsNullOrWhiteSpace(entityName) ? "audit" : entityName.Trim();
-        var fileName = $"audit_{safeEntity}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.csv";
-        return Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "AuditHistoryExtractorPro",
-            "exports",
-            fileName);
-    }
-
-    private void UpdateProgressFromStatus(string status)
-    {
-        if (string.IsNullOrWhiteSpace(status))
-        {
-            return;
-        }
-
-        if (status.StartsWith("Consultando página", StringComparison.OrdinalIgnoreCase))
-        {
-            _vm.Progress = Math.Min(95, Math.Max(_vm.Progress, 10));
-            return;
-        }
-
-        if (!status.StartsWith("Escribiendo registros", StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-
-        var marker = status.LastIndexOf('-');
-        if (marker <= 0)
-        {
-            return;
-        }
-
-        var tail = status[(marker + 1)..].Trim().TrimEnd('.');
-        if (!int.TryParse(tail, out var written) || _vm.MaxRecords <= 0)
-        {
-            return;
-        }
-
-        var percentage = (int)Math.Round((written * 100.0) / _vm.MaxRecords, MidpointRounding.AwayFromZero);
-        _vm.Progress = Math.Clamp(percentage, 1, 99);
-    }
-
     private void CancelExtraction()
     {
         if (isLoading)
         {
             _vm.ExtractionCts?.Cancel();
-        }
-    }
-
-    private void OpenOutputFolder()
-    {
-        if (string.IsNullOrWhiteSpace(lastOutputFilePath))
-        {
-            return;
-        }
-
-        var directory = Path.GetDirectoryName(lastOutputFilePath);
-        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
-        {
-            ShowAlert("⚠️ No se encontró la carpeta de salida.", true);
-            return;
-        }
-
-        try
-        {
-            var startInfo = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "explorer.exe",
-                Arguments = directory,
-                UseShellExecute = true
-            };
-
-            System.Diagnostics.Process.Start(startInfo);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "No fue posible abrir la carpeta de salida");
-            ShowAlert("❌ No fue posible abrir la carpeta de salida.", true);
-        }
-    }
-
-    private void OpenOutputFile()
-    {
-        if (string.IsNullOrWhiteSpace(lastOutputFilePath) || !File.Exists(lastOutputFilePath))
-        {
-            ShowAlert("⚠️ No se encontró el archivo CSV generado.", true);
-            return;
-        }
-
-        try
-        {
-            var startInfo = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = lastOutputFilePath,
-                UseShellExecute = true
-            };
-
-            System.Diagnostics.Process.Start(startInfo);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "No fue posible abrir el archivo CSV");
-            ShowAlert("❌ No fue posible abrir el archivo CSV.", true);
         }
     }
 
