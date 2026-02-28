@@ -160,6 +160,95 @@ public class RecordComparisonTests
     }
 }
 
+/// <summary>
+/// Tests para el comportamiento de dominio agregado en AuditRecord.
+/// Valida que las propiedades computadas y el método AddFieldChange funcionen correctamente.
+/// </summary>
+public class AuditRecordBehaviorTests
+{
+    [Theory]
+    [InlineData("Create", true,  false, false)]
+    [InlineData("create", true,  false, false)] // case-insensitive
+    [InlineData("Update", false, true,  false)]
+    [InlineData("DELETE", false, false, true)]  // case-insensitive
+    [InlineData("",       false, false, false)] // sin operación
+    public void OperationFlags_ShouldReflectOperationString(
+        string operation,
+        bool expectedCreate,
+        bool expectedUpdate,
+        bool expectedDelete)
+    {
+        var record = new AuditRecord { Operation = operation };
+
+        record.IsCreateOperation.Should().Be(expectedCreate);
+        record.IsUpdateOperation.Should().Be(expectedUpdate);
+        record.IsDeleteOperation.Should().Be(expectedDelete);
+    }
+
+    [Fact]
+    public void ChangedFieldCount_ShouldCountOnlyActuallyChangedFields()
+    {
+        var record = new AuditRecord();
+        record.Changes["name"]   = new AuditFieldChange { FieldName = "name",   OldValue = "A", NewValue = "B" };
+        record.Changes["status"] = new AuditFieldChange { FieldName = "status", OldValue = "X", NewValue = "X" }; // sin cambio
+        record.Changes["email"]  = new AuditFieldChange { FieldName = "email",  OldValue = null, NewValue = "new@x.com" };
+
+        record.ChangedFieldCount.Should().Be(2); // name + email
+    }
+
+    [Fact]
+    public void HasFieldChange_ShouldReturnTrue_WhenFieldExists()
+    {
+        var record = new AuditRecord();
+        record.Changes["name"] = new AuditFieldChange { FieldName = "name", OldValue = "A", NewValue = "B" };
+
+        record.HasFieldChange("name").Should().BeTrue();
+        record.HasFieldChange("nonexistent").Should().BeFalse();
+    }
+
+    [Fact]
+    public void AddFieldChange_ShouldAddChangeToCollection()
+    {
+        var record = new AuditRecord();
+        var change = new AuditFieldChange { FieldName = "telephone", OldValue = "111", NewValue = "222" };
+
+        record.AddFieldChange(change);
+
+        record.Changes.Should().ContainKey("telephone");
+        record.Changes["telephone"].Should().Be(change);
+    }
+
+    [Fact]
+    public void AddFieldChange_ShouldReplaceExistingChange_WhenSameFieldAdded()
+    {
+        var record = new AuditRecord();
+        record.AddFieldChange(new AuditFieldChange { FieldName = "email", OldValue = "a@a.com", NewValue = "b@b.com" });
+        var updated = new AuditFieldChange { FieldName = "email", OldValue = "a@a.com", NewValue = "c@c.com" };
+
+        record.AddFieldChange(updated);
+
+        record.Changes["email"].NewValue.Should().Be("c@c.com");
+        record.Changes.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public void AddFieldChange_ShouldThrow_WhenChangeIsNull()
+    {
+        var record = new AuditRecord();
+        Action act = () => record.AddFieldChange(null!);
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void AddFieldChange_ShouldThrow_WhenFieldNameIsEmpty()
+    {
+        var record = new AuditRecord();
+        var change = new AuditFieldChange { FieldName = "", OldValue = "x", NewValue = "y" };
+        Action act = () => record.AddFieldChange(change);
+        act.Should().Throw<ArgumentException>().WithMessage("*FieldName*");
+    }
+}
+
 public class AuditStatisticsTests
 {
     [Fact]

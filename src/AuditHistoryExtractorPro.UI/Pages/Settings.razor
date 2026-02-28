@@ -5,6 +5,7 @@
 @using AuditHistoryExtractorPro.UI.Services
 @using DataverseServiceClient = Microsoft.PowerPlatform.Dataverse.Client.ServiceClient
 @using DomainAuthenticationType = AuditHistoryExtractorPro.Domain.ValueObjects.AuthenticationType
+@using Microsoft.Extensions.Logging
 @using Microsoft.Xrm.Sdk.Messages
 @using Microsoft.Xrm.Sdk.Metadata
 @inject NavigationManager Navigation
@@ -677,21 +678,21 @@
         {
             DomainAuthenticationType.OAuth2 => new OAuth2AuthenticationProvider(
                 AuthConfig,
-                ServiceProvider.GetRequiredService<AuditHistoryExtractorPro.Domain.Interfaces.ILogger<OAuth2AuthenticationProvider>>(),
+                ServiceProvider.GetRequiredService<ILogger<OAuth2AuthenticationProvider>>(),
                 OnDeviceCodeReceived),
 
             DomainAuthenticationType.ClientSecret => new ClientSecretAuthenticationProvider(
                 AuthConfig,
                 null,
-                ServiceProvider.GetRequiredService<AuditHistoryExtractorPro.Domain.Interfaces.ILogger<ClientSecretAuthenticationProvider>>()),
+                ServiceProvider.GetRequiredService<ILogger<ClientSecretAuthenticationProvider>>()),
 
             DomainAuthenticationType.Certificate => new CertificateAuthenticationProvider(
                 AuthConfig,
-                ServiceProvider.GetRequiredService<AuditHistoryExtractorPro.Domain.Interfaces.ILogger<CertificateAuthenticationProvider>>()),
+                ServiceProvider.GetRequiredService<ILogger<CertificateAuthenticationProvider>>()),
 
             DomainAuthenticationType.ManagedIdentity => new ManagedIdentityAuthenticationProvider(
                 AuthConfig,
-                ServiceProvider.GetRequiredService<AuditHistoryExtractorPro.Domain.Interfaces.ILogger<ManagedIdentityAuthenticationProvider>>()),
+                ServiceProvider.GetRequiredService<ILogger<ManagedIdentityAuthenticationProvider>>()),
 
             _ => throw new NotSupportedException($"Authentication type {AuthConfig.Type} is not supported")
         };

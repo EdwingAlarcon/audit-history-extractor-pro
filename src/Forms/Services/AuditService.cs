@@ -1,5 +1,6 @@
 using AuditHistoryExtractorPro.Domain.Interfaces;
 using AuditHistoryExtractorPro.Domain.ValueObjects;
+using Microsoft.Extensions.Logging;
 using CoreConnectionSettings = AuditHistoryExtractorPro.Core.Models.ConnectionSettings;
 using CoreExtractionRequest = AuditHistoryExtractorPro.Core.Models.ExtractionRequest;
 using CoreAuditService = AuditHistoryExtractorPro.Core.Services.IAuditService;
@@ -10,7 +11,7 @@ public class AuditService : IAuditService
 {
     private readonly CoreAuditService _coreAuditService;
     private readonly AuthenticationConfiguration _authenticationConfiguration;
-    private readonly AuditHistoryExtractorPro.Domain.Interfaces.ILogger<AuditService> _logger;
+    private readonly ILogger<AuditService> _logger;
     private readonly IUserConfigService _userConfigService;
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
     private readonly SemaphoreSlim _initLock = new(1, 1);
@@ -26,7 +27,7 @@ public class AuditService : IAuditService
         CoreAuditService coreAuditService,
         AuthenticationConfiguration authenticationConfiguration,
         IUserConfigService userConfigService,
-        AuditHistoryExtractorPro.Domain.Interfaces.ILogger<AuditService> logger)
+        ILogger<AuditService> logger)
     {
         _coreAuditService = coreAuditService;
         _authenticationConfiguration = authenticationConfiguration;

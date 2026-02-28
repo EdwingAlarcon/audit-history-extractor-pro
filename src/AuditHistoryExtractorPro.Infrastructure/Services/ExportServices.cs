@@ -1,6 +1,7 @@
 using AuditHistoryExtractorPro.Domain.Entities;
 using AuditHistoryExtractorPro.Domain.Interfaces;
 using AuditHistoryExtractorPro.Domain.ValueObjects;
+using Microsoft.Extensions.Logging;
 using ClosedXML.Excel;
 using CsvHelper;
 using CsvHelper.Configuration;
@@ -9,7 +10,7 @@ using System.Globalization;
 using System.IO.Compression;
 using System.Text;
 
-namespace AuditHistoryExtractorPro.Infrastructure.Services.Export;
+namespace AuditHistoryExtractorPro.Infrastructure.Services;
 
 /// <summary>
 /// Servicio de exportación a Excel

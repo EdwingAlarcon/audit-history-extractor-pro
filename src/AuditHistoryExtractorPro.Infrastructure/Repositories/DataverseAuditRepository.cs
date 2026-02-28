@@ -1,6 +1,7 @@
 using AuditHistoryExtractorPro.Domain.Entities;
 using AuditHistoryExtractorPro.Domain.Interfaces;
 using AuditHistoryExtractorPro.Domain.ValueObjects;
+using Microsoft.Extensions.Logging;
 using Microsoft.PowerPlatform.Dataverse.Client;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Query;
@@ -11,9 +12,11 @@ using System.ServiceModel;
 namespace AuditHistoryExtractorPro.Infrastructure.Repositories;
 
 /// <summary>
-/// Repositorio para operaciones de auditoría con Dataverse
+/// Repositorio para operaciones de auditoría con Dataverse.
+/// Implementa también <see cref="ISyncStateStore"/> para separar la responsabilidad
+/// de gestión de estado de sincronización incremental (SRP).
 /// </summary>
-public class DataverseAuditRepository : IAuditRepository
+public class DataverseAuditRepository : IAuditRepository, ISyncStateStore
 {
     private readonly IAuthenticationProvider _authProvider;
     private readonly AuthenticationConfiguration _config;
@@ -21,6 +24,9 @@ public class DataverseAuditRepository : IAuditRepository
     private readonly ICacheService _cacheService;
     private readonly AsyncRetryPolicy _retryPolicy;
     private ServiceClient? _serviceClient;
+    // SemaphoreSlim evita la race condition de crear dos ServiceClients simultáneos
+    // cuando el repositorio se resuelve como Singleton bajo carga concurrente.
+    private readonly SemaphoreSlim _connectionLock = new(1, 1);
 
     public DataverseAuditRepository(
         IAuthenticationProvider authProvider,
@@ -52,19 +58,30 @@ public class DataverseAuditRepository : IAuditRepository
 
     private async Task<ServiceClient> GetServiceClientAsync()
     {
-        if (_serviceClient == null || !_serviceClient.IsReady)
+        // Fast path: cliente listo, sin lock.
+        if (_serviceClient?.IsReady == true)
+            return _serviceClient;
+
+        // Slow path: doble comprobación bajo lock para evitar race condition
+        // en entornos multi-hilo (Blazor Server con múltiples sesiones concurrentes).
+        await _connectionLock.WaitAsync();
+        try
         {
+            if (_serviceClient?.IsReady == true)
+                return _serviceClient;
+
             if (!Uri.TryCreate(_config.EnvironmentUrl, UriKind.Absolute, out var dataverseUri))
             {
                 throw new InvalidOperationException($"EnvironmentUrl inválida: {_config.EnvironmentUrl}");
             }
 
+            _serviceClient?.Dispose();
             _serviceClient = new ServiceClient(
                 dataverseUri,
                 async _ => await _authProvider.GetAccessTokenAsync(),
                 useUniqueInstance: true,
                 logger: null);
-            
+
             if (!_serviceClient.IsReady)
             {
                 throw new InvalidOperationException(
@@ -72,9 +89,12 @@ public class DataverseAuditRepository : IAuditRepository
             }
 
             _logger.LogInformation("Connected to Dataverse: {Url}", _config.EnvironmentUrl);
+            return _serviceClient;
         }
-
-        return _serviceClient;
+        finally
+        {
+            _connectionLock.Release();
+        }
     }
 
     public async Task<List<AuditRecord>> ExtractAuditRecordsAsync(
@@ -414,5 +434,6 @@ public class DataverseAuditRepository : IAuditRepository
     public void Dispose()
     {
         _serviceClient?.Dispose();
+        _connectionLock.Dispose();
     }
 }

@@ -1,6 +1,7 @@
 using AuditHistoryExtractorPro.Domain.Entities;
 using AuditHistoryExtractorPro.Domain.Interfaces;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 using Azure.Security.KeyVault.Secrets;
 using Azure.Identity;
 

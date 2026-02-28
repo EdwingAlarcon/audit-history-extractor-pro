@@ -2,6 +2,7 @@ using AuditHistoryExtractorPro.Domain.Entities;
 using AuditHistoryExtractorPro.Domain.Interfaces;
 using AuditHistoryExtractorPro.Domain.ValueObjects;
 using MediatR;
+using Microsoft.Extensions.Logging;
 
 namespace AuditHistoryExtractorPro.Application.UseCases.ExportAudit;
 

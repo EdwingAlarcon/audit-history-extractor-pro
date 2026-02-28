@@ -1,7 +1,9 @@
 namespace AuditHistoryExtractorPro.Domain.Entities;
 
 /// <summary>
-/// Representa un registro de auditoría extraído de Dataverse
+/// Representa un registro de auditoría extraído de Dataverse.
+/// Encapsula comportamiento de dominio relacionado al tipo de operación
+/// y a los cambios de campos, siguiendo el principio de Tell-Don't-Ask.
 /// </summary>
 public class AuditRecord
 {
@@ -18,6 +20,39 @@ public class AuditRecord
     public Dictionary<string, AuditFieldChange> Changes { get; set; } = new();
     public string? TransactionId { get; set; }
     public Dictionary<string, object> AdditionalData { get; set; } = new();
+
+    // ── Comportamiento de dominio ────────────────────────────────────────────
+
+    /// <summary>Devuelve true si la operación registrada es una creación.</summary>
+    public bool IsCreateOperation =>
+        string.Equals(Operation, "Create", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Devuelve true si la operación registrada es una actualización.</summary>
+    public bool IsUpdateOperation =>
+        string.Equals(Operation, "Update", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Devuelve true si la operación registrada es una eliminación.</summary>
+    public bool IsDeleteOperation =>
+        string.Equals(Operation, "Delete", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Número de campos que realmente cambiaron de valor.</summary>
+    public int ChangedFieldCount => Changes.Values.Count(c => c.HasChanged);
+
+    /// <summary>Indica si el campo especificado tiene un cambio registrado.</summary>
+    public bool HasFieldChange(string fieldName) => Changes.ContainsKey(fieldName);
+
+    /// <summary>
+    /// Agrega o reemplaza el cambio de un campo de forma explícita.
+    /// Método de intención clara frente al acceso directo al diccionario.
+    /// </summary>
+    public void AddFieldChange(AuditFieldChange change)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        if (string.IsNullOrWhiteSpace(change.FieldName))
+            throw new ArgumentException("FieldName cannot be empty.", nameof(change));
+
+        Changes[change.FieldName] = change;
+    }
 }
 
 /// <summary>

@@ -1,7 +1,7 @@
 using AuditHistoryExtractorPro.Domain.Interfaces;
 using AuditHistoryExtractorPro.Domain.ValueObjects;
 using AuditHistoryExtractorPro.Infrastructure.Services;
-using AuditHistoryExtractorPro.Infrastructure.Services.Export;
+using Microsoft.Extensions.Logging;
 using AuditHistoryExtractorPro.Infrastructure.Repositories;
 using AuditHistoryExtractorPro.Infrastructure.Authentication;
 using AuditHistoryExtractorPro.UI.Services;
@@ -30,7 +30,6 @@ builder.Services.AddMudServices();
 
 // Registro de servicios de la aplicación
 builder.Services.AddMemoryCache();
-builder.Services.AddSingleton(typeof(AuditHistoryExtractorPro.Domain.Interfaces.ILogger<>), typeof(SerilogAdapter<>));
 builder.Services.AddSingleton<ICacheService, MemoryCacheService>();
 builder.Services.AddSingleton<IAuditProcessor, AuditProcessor>();
 builder.Services.AddScoped<AuditSessionState>();
@@ -41,7 +40,8 @@ builder.Services.AddSingleton<IUserConfigService, UserConfigService>();
 builder.Services.AddSingleton<CoreAuthHelper>();
 builder.Services.AddSingleton<CoreQueryBuilderService>();
 builder.Services.AddSingleton<CoreExcelExportServiceInterface, CoreExcelExportService>();
-builder.Services.AddSingleton<CoreAuditServiceInterface, CoreAuditService>();
+// Scoped: cada sesión de Blazor Server obtiene su propia instancia con estado de conexión aislado.
+builder.Services.AddScoped<CoreAuditServiceInterface, CoreAuditService>();
 builder.Services.AddScoped<ExtractPageCoordinator>();
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<ExportPageCoordinator>();
@@ -92,23 +92,26 @@ builder.Services.AddSingleton<IAuthenticationProvider>(sp =>
 {
     var config = sp.GetRequiredService<AuthenticationConfiguration>();
     
-    // Crear proveedores usando las firmas correctas con el ILogger del dominio
     return config.Type switch
     {
         AuthenticationType.OAuth2 => new OAuth2AuthenticationProvider(config,
-            sp.GetRequiredService<AuditHistoryExtractorPro.Domain.Interfaces.ILogger<OAuth2AuthenticationProvider>>()),
-        AuthenticationType.ClientSecret => new ClientSecretAuthenticationProvider(config, null, 
-            sp.GetRequiredService<AuditHistoryExtractorPro.Domain.Interfaces.ILogger<ClientSecretAuthenticationProvider>>()),
-        AuthenticationType.Certificate => new CertificateAuthenticationProvider(config, 
-            sp.GetRequiredService<AuditHistoryExtractorPro.Domain.Interfaces.ILogger<CertificateAuthenticationProvider>>()),
-        AuthenticationType.ManagedIdentity => new ManagedIdentityAuthenticationProvider(config, 
-            sp.GetRequiredService<AuditHistoryExtractorPro.Domain.Interfaces.ILogger<ManagedIdentityAuthenticationProvider>>()),
+            sp.GetRequiredService<ILogger<OAuth2AuthenticationProvider>>()),
+        AuthenticationType.ClientSecret => new ClientSecretAuthenticationProvider(config, null,
+            sp.GetRequiredService<ILogger<ClientSecretAuthenticationProvider>>()),
+        AuthenticationType.Certificate => new CertificateAuthenticationProvider(config,
+            sp.GetRequiredService<ILogger<CertificateAuthenticationProvider>>()),
+        AuthenticationType.ManagedIdentity => new ManagedIdentityAuthenticationProvider(config,
+            sp.GetRequiredService<ILogger<ManagedIdentityAuthenticationProvider>>()),
         _ => throw new NotSupportedException($"Authentication type {config.Type} is not supported")
     };
 });
 
 // Registro del repositorio de auditoría
-builder.Services.AddSingleton<IAuditRepository, DataverseAuditRepository>();
+// DataverseAuditRepository implementa tanto IAuditRepository como ISyncStateStore.
+// Se registra la instancia concreta para que ambas interfaces compartan el mismo Singleton.
+builder.Services.AddSingleton<DataverseAuditRepository>();
+builder.Services.AddSingleton<IAuditRepository>(sp => sp.GetRequiredService<DataverseAuditRepository>());
+builder.Services.AddSingleton<ISyncStateStore>(sp => sp.GetRequiredService<DataverseAuditRepository>());
 
 // Servicios de exportación
 builder.Services.AddTransient<ExcelExportService>();
@@ -122,7 +125,7 @@ builder.Services.AddTransient<IExportService>(sp =>
             sp.GetRequiredService<CsvExportService>(),
             sp.GetRequiredService<JsonExportService>()
         },
-        sp.GetRequiredService<AuditHistoryExtractorPro.Domain.Interfaces.ILogger<CompositeExportService>>()));
+        sp.GetRequiredService<ILogger<CompositeExportService>>()));
 
 // MediatR
 builder.Services.AddMediatR(cfg => 
@@ -149,15 +152,5 @@ app.UseAntiforgery();
 Log.Information("Audit History Extractor Pro UI starting...");
 app.Run();
 
-// Adaptador de Serilog
-public class SerilogAdapter<T> : AuditHistoryExtractorPro.Domain.Interfaces.ILogger<T>
-{
-    public void LogInformation(string message, params object[] args) => Log.Information(message, args);
-    public void LogWarning(string message, params object[] args) => Log.Warning(message, args);
-    public void LogError(Exception? exception, string message, params object[] args)
-    {
-        if (exception != null) Log.Error(exception, message, args);
-        else Log.Error(message, args);
-    }
-    public void LogDebug(string message, params object[] args) => Log.Debug(message, args);
-}
+// SerilogAdapter eliminado: builder.Host.UseSerilog() ya registra Serilog como
+// proveedor de Microsoft.Extensions.Logging.ILogger<T> para toda la aplicación.

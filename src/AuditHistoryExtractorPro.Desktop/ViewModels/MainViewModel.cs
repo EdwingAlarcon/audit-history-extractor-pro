@@ -326,6 +326,11 @@ public partial class MainViewModel : ObservableObject
             // ── La exportación NO toca PreviewRecords.
             // La Vista Previa es un estado independiente del motor de exportación.
         }
+        catch (OperationCanceledException)
+        {
+            ProgressValue = 0;
+            StatusMessage = "Extracción cancelada por el usuario.";
+        }
         catch (Exception ex)
         {
             ProgressValue = 0;
@@ -336,11 +341,6 @@ public partial class MainViewModel : ObservableObject
                 "Error de Extracción",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
-        }
-        catch (OperationCanceledException)
-        {
-            ProgressValue = 0;
-            StatusMessage = "Extracción cancelada por el usuario.";
         }
         finally
         {
@@ -436,6 +436,11 @@ public partial class MainViewModel : ObservableObject
             ProgressValue = 100;
             StatusMessage = $"Vista previa: {PreviewRecords.Count} registros. Revisa los datos y pulsa Exportar.";
         }
+        catch (OperationCanceledException)
+        {
+            ProgressValue = 0;
+            StatusMessage = "Vista previa cancelada por el usuario.";
+        }
         catch (Exception ex)
         {
             ProgressValue = 0;
@@ -446,11 +451,6 @@ public partial class MainViewModel : ObservableObject
                 "Error de Vista Previa",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
-        }
-        catch (OperationCanceledException)
-        {
-            ProgressValue = 0;
-            StatusMessage = "Vista previa cancelada por el usuario.";
         }
         finally
         {

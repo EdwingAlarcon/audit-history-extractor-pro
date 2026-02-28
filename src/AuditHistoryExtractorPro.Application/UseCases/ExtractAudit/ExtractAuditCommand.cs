@@ -2,6 +2,7 @@ using AuditHistoryExtractorPro.Domain.Entities;
 using AuditHistoryExtractorPro.Domain.Interfaces;
 using AuditHistoryExtractorPro.Domain.ValueObjects;
 using MediatR;
+using Microsoft.Extensions.Logging;
 
 namespace AuditHistoryExtractorPro.Application.UseCases.ExtractAudit;
 
@@ -33,17 +34,20 @@ public class ExtractAuditCommandHandler : IRequestHandler<ExtractAuditCommand, E
     private readonly IAuditRepository _auditRepository;
     private readonly IAuditProcessor _auditProcessor;
     private readonly ICacheService _cacheService;
+    private readonly ISyncStateStore _syncStateStore;
     private readonly ILogger<ExtractAuditCommandHandler> _logger;
 
     public ExtractAuditCommandHandler(
         IAuditRepository auditRepository,
         IAuditProcessor auditProcessor,
         ICacheService cacheService,
+        ISyncStateStore syncStateStore,
         ILogger<ExtractAuditCommandHandler> logger)
     {
         _auditRepository = auditRepository;
         _auditProcessor = auditProcessor;
         _cacheService = cacheService;
+        _syncStateStore = syncStateStore;
         _logger = logger;
     }
 
@@ -138,7 +142,7 @@ public class ExtractAuditCommandHandler : IRequestHandler<ExtractAuditCommand, E
     {
         foreach (var entityName in criteria.EntityNames)
         {
-            var lastExtractionDate = await _auditRepository.GetLastExtractionDateAsync(
+            var lastExtractionDate = await _syncStateStore.GetLastExtractionDateAsync(
                 entityName,
                 cancellationToken);
 
@@ -160,7 +164,7 @@ public class ExtractAuditCommandHandler : IRequestHandler<ExtractAuditCommand, E
         var now = DateTime.UtcNow;
         foreach (var entityName in criteria.EntityNames)
         {
-            await _auditRepository.SaveLastExtractionDateAsync(
+            await _syncStateStore.SaveLastExtractionDateAsync(
                 entityName,
                 now,
                 cancellationToken);

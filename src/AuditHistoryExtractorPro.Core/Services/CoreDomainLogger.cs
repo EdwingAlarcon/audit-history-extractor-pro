@@ -1,29 +1,36 @@
-using AuditHistoryExtractorPro.Domain.Interfaces;
+using Microsoft.Extensions.Logging;
 
 namespace AuditHistoryExtractorPro.Core.Services;
 
+/// <summary>
+/// Logger de consola mínimo para contextos sin DI (ej. AuthHelper en Desktop).
+/// Implementa Microsoft.Extensions.Logging.ILogger<T> para compatibilidad total con MEL.
+/// </summary>
 internal sealed class CoreDomainLogger<T> : ILogger<T>
 {
-    public void LogInformation(string message, params object[] args) =>
-        Console.WriteLine($"[INFO] {Format(message, args)}");
-
-    public void LogWarning(string message, params object[] args) =>
-        Console.WriteLine($"[WARN] {Format(message, args)}");
-
-    public void LogError(Exception? exception, string message, params object[] args)
+    public void Log<TState>(
+        LogLevel logLevel,
+        EventId eventId,
+        TState state,
+        Exception? exception,
+        Func<TState, Exception?, string> formatter)
     {
-        Console.WriteLine($"[ERROR] {Format(message, args)}");
-        if (exception is not null)
+        var level = logLevel switch
         {
+            LogLevel.Debug       => "DEBUG",
+            LogLevel.Information => "INFO ",
+            LogLevel.Warning     => "WARN ",
+            LogLevel.Error       => "ERROR",
+            LogLevel.Critical    => "CRIT ",
+            _                    => "TRACE"
+        };
+
+        Console.WriteLine($"[{level}] {formatter(state, exception)}");
+        if (exception is not null)
             Console.WriteLine(exception);
-        }
     }
 
-    public void LogDebug(string message, params object[] args) =>
-        Console.WriteLine($"[DEBUG] {Format(message, args)}");
+    public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Debug;
 
-    private static string Format(string message, object[] args) =>
-        args is null || args.Length == 0
-            ? message
-            : $"{message} | {string.Join(", ", args.Select(a => a?.ToString()))}";
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 }

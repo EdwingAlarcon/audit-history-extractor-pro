@@ -1,5 +1,6 @@
 using AuditHistoryExtractorPro.Domain.Interfaces;
 using AuditHistoryExtractorPro.Domain.ValueObjects;
+using Microsoft.Extensions.Logging;
 using Azure.Identity;
 using Microsoft.Identity.Client;
 using Microsoft.Identity.Client.Broker;

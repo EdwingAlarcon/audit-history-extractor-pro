@@ -33,9 +33,9 @@ public class AuditService : IAuditService
     private const int DefaultRetryAfterSeconds = 5;
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
     private readonly SemaphoreSlim _nameResolutionLock = new(1, 1);
-    // Entidades cuya llamada RetrieveEntityRequest ya fallÃ³ en esta sesiÃ³n.
+    // Entidades cuya llamada RetrieveEntityRequest ya falló en esta sesión.
     // Cualquier llamada posterior a LoadEntityMetadataContextAsync para esa
-    // entidad retorna inmediatamente sin tocar Dataverse (fallo instantÃ¡neo).
+    // entidad retorna inmediatamente sin tocar Dataverse (fallo instantáneo).
     private readonly HashSet<string> _entidadesCorruptasCache = new(StringComparer.OrdinalIgnoreCase);
     // Caché de ObjectTypeCode (entero) por nombre lógico de entidad.
     // Dataverse requiere el entero en condiciones FetchXML sobre 'audit.objecttypecode'.
@@ -1635,13 +1635,13 @@ public class AuditService : IAuditService
             return;
         }
 
-        // ── CACHÉ DE FALLOS: si esta entidad ya lanzÃ³ excepciÃ³n antes en esta
-        // sesiÃ³n, retornamos inmediatamente sin llamar a Dataverse.
-        // Esto evita que acumulaciÃ³n de timeouts congele el hilo UI.
+        // ── CACHÉ DE FALLOS: si esta entidad ya lanzó excepción antes en esta
+        // sesión, retornamos inmediatamente sin llamar a Dataverse.
+        // Esto evita que acumulación de timeouts congele el hilo UI.
         if (_entidadesCorruptasCache.Contains(entityName))
         {
             _logger.LogDebug(
-                "[LoadEntityMetadata] '{EntityName}' estÃ¡ en lista negra de entidades corruptas; omitiendo llamada a Dataverse",
+                "[LoadEntityMetadata] '{EntityName}' está en lista negra de entidades corruptas; omitiendo llamada a Dataverse",
                 entityName);
             _optionSetCache = new Dictionary<string, Dictionary<int, string>>(StringComparer.OrdinalIgnoreCase);
             _attributeByColumnNumber = new Dictionary<int, string>();
@@ -1675,18 +1675,18 @@ public class AuditService : IAuditService
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
-                "[LoadEntityMetadata] Metadatos de '{EntityName}' no disponibles; aÃ±adiendo a lista negra y usando cachÃ©s vacÃ­as",
+                "[LoadEntityMetadata] Metadatos de '{EntityName}' no disponibles; añadiendo a lista negra y usando cachés vacías",
                 entityName);
 
-            // AÃ±adir a lista negra para que futuras llamadas fallen instantÃ¡neamente
+            // Añadir a lista negra para que futuras llamadas fallen instantáneamente
             // sin esperar el timeout de Dataverse.
             _entidadesCorruptasCache.Add(entityName);
 
-            // Dejar cachÃ©s en estado vacÃ­o/seguro para esta entidad.
+            // Dejar cachés en estado vacío/seguro para esta entidad.
             _optionSetCache = new Dictionary<string, Dictionary<int, string>>(StringComparer.OrdinalIgnoreCase);
             _attributeByColumnNumber = new Dictionary<int, string>();
             _lookupTargetByAttribute = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            return;  // Continuar sin metadatos; los campos mostrarÃ¡n valores raw.
+            return;  // Continuar sin metadatos; los campos mostrarán valores raw.
         }
 
         _metadataTranslationService.CacheEntityMetadata(entityName, response.EntityMetadata);

@@ -1,6 +1,7 @@
 using AuditHistoryExtractorPro.Domain.Entities;
 using AuditHistoryExtractorPro.Domain.Interfaces;
 using MediatR;
+using Microsoft.Extensions.Logging;
 
 namespace AuditHistoryExtractorPro.Application.UseCases.CompareRecords;
 

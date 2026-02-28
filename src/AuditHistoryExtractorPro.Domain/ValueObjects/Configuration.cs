@@ -1,29 +1,33 @@
 namespace AuditHistoryExtractorPro.Domain.ValueObjects;
 
 /// <summary>
-/// Representa los criterios de extracción de auditoría
+/// Representa los criterios de extracción de auditoría.
+/// La mayoría de propiedades son <c>init</c>: se asignan durante la construcción
+/// y no pueden mutar después.
+/// Excepción: <see cref="FromDate"/> y <see cref="ToDate"/> mantienen <c>set</c>
+/// porque el handler de modo incremental los ajusta en tiempo de ejecución.
 /// </summary>
 public class ExtractionCriteria
 {
-    public List<string> EntityNames { get; set; } = new();
-    public List<string>? FieldNames { get; set; }
-    public DateTime? FromDate { get; set; }
-    public DateTime? ToDate { get; set; }
-    public List<string>? UserIds { get; set; }
-    public List<OperationType>? Operations { get; set; }
-    public bool IncrementalMode { get; set; }
-    public int PageSize { get; set; } = 5000;
-    public int MaxParallelRequests { get; set; } = 10;
-    public Dictionary<string, string>? CustomFilters { get; set; }
-    
+    public List<string> EntityNames { get; init; } = new();
+    public List<string>? FieldNames { get; init; }
+    public DateTime? FromDate { get; set; }   // mutable: ajustado en modo incremental
+    public DateTime? ToDate { get; set; }     // mutable: ajustado en modo incremental
+    public List<string>? UserIds { get; init; }
+    public List<OperationType>? Operations { get; init; }
+    public bool IncrementalMode { get; init; }
+    public int PageSize { get; init; } = 5000;
+    public int MaxParallelRequests { get; init; } = 10;
+    public Dictionary<string, string>? CustomFilters { get; init; }
+
     public void Validate()
     {
         if (!EntityNames.Any())
             throw new ArgumentException("At least one entity name must be specified");
-        
+
         if (FromDate.HasValue && ToDate.HasValue && FromDate > ToDate)
             throw new ArgumentException("FromDate cannot be greater than ToDate");
-        
+
         if (PageSize <= 0 || PageSize > 10000)
             throw new ArgumentException("PageSize must be between 1 and 10000");
     }
@@ -44,17 +48,19 @@ public enum OperationType
 }
 
 /// <summary>
-/// Configuración de exportación
+/// Configuración de exportación.
+/// Todas las propiedades son <c>init</c>: se configuran una sola vez al construir
+/// el objeto y no deben cambiar durante el ciclo de vida de la exportación.
 /// </summary>
 public class ExportConfiguration
 {
-    public ExportFormat Format { get; set; } = ExportFormat.Excel;
-    public string OutputPath { get; set; } = "./exports";
-    public string FileName { get; set; } = "audit_export";
-    public bool CompressOutput { get; set; }
-    public bool IncludeTimestamp { get; set; } = true;
-    public int BatchSize { get; set; } = 10000;
-    public ExportDestination? Destination { get; set; }
+    public ExportFormat Format { get; init; } = ExportFormat.Excel;
+    public string OutputPath { get; init; } = "./exports";
+    public string FileName { get; init; } = "audit_export";
+    public bool CompressOutput { get; init; }
+    public bool IncludeTimestamp { get; init; } = true;
+    public int BatchSize { get; init; } = 10000;
+    public ExportDestination? Destination { get; init; }
 }
 
 public enum ExportFormat
@@ -70,8 +76,8 @@ public enum ExportFormat
 /// </summary>
 public class ExportDestination
 {
-    public DestinationType Type { get; set; }
-    public Dictionary<string, string> Configuration { get; set; } = new();
+    public DestinationType Type { get; init; }
+    public Dictionary<string, string> Configuration { get; init; } = new();
 }
 
 public enum DestinationType
@@ -105,8 +111,8 @@ public class AuthenticationConfiguration
         switch (Type)
         {
             case AuthenticationType.OAuth2:
-                if (string.IsNullOrWhiteSpace(EnvironmentUrl))
-                    throw new ArgumentException("EnvironmentUrl is required for OAuth2");
+                if (string.IsNullOrWhiteSpace(TenantId) || string.IsNullOrWhiteSpace(ClientId))
+                    throw new ArgumentException("TenantId and ClientId are required for OAuth2");
                 break;
             
             case AuthenticationType.ClientSecret:
