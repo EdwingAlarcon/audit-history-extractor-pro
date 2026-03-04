@@ -1,6 +1,7 @@
 ﻿using AuditHistoryExtractorPro.Core.Services;
 using AuditHistoryExtractorPro.Desktop.Services;
 using AuditHistoryExtractorPro.Desktop.ViewModels;
+using AuditHistoryExtractorPro.Desktop.Views;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Serilog;
@@ -149,6 +150,8 @@ public partial class App : System.Windows.Application
 		services.AddSingleton<ConnectionManagerService>();
 		services.AddSingleton<MainViewModel>();
 		services.AddSingleton<MainWindow>();
+		services.AddSingleton<QuickExtractViewModel>();
+		services.AddSingleton<QuickExtractWindow>();
 	}
 }
 

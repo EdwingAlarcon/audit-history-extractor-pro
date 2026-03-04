@@ -167,10 +167,17 @@
             await AuditService.SaveUserConfigAsync();
 
             var exportPath = BuildOutputCsvPath(_vm.EntityName);
-            var progress = new Progress<string>(status =>
+
+            var statusProgress = new Progress<string>(status =>
             {
                 _vm.StatusMessage = status;
                 UpdateProgressFromStatus(status);
+                InvokeAsync(StateHasChanged);
+            });
+
+            var percentProgress = new Progress<int>(p =>
+            {
+                _vm.Progress = (int)Math.Clamp(p, 1, 99);
                 InvokeAsync(StateHasChanged);
             });
 
@@ -187,7 +194,8 @@
                     MaxRecords = _vm.MaxRecords
                 },
                 exportPath,
-                progress,
+                statusProgress,
+                percentProgress,
                 _vm.ExtractionCts.Token);
 
             if (result.Success)

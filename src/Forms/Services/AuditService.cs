@@ -132,6 +132,7 @@ public class AuditService : IAuditService
         ExtractInputModel input,
         string outputFilePath,
         IProgress<string>? progress = null,
+        IProgress<int>? percentProgress = null,
         CancellationToken cancellationToken = default)
     {
         await InitializeAsync(cancellationToken);
@@ -155,6 +156,7 @@ public class AuditService : IAuditService
             },
             outputFilePath,
             progress,
+            percentProgress,
             cancellationToken);
 
         if (!coreResult.Success)

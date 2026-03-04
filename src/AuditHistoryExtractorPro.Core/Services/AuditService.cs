@@ -265,7 +265,7 @@ public class AuditService : IAuditService
         var rows = new List<AuditExportRow>(maxRows);
 
         IAsyncEnumerable<AuditExportRow> previewStream =
-            StreamRowsAsync(previewRequest, viewIdsHash, progress: null, updateCount: _ => { }, cancellationToken);
+            StreamRowsAsync(previewRequest, viewIdsHash, progress: null, percentProgress: null, updateCount: _ => { }, cancellationToken);
 
         await foreach (var row in previewStream)
         {
@@ -280,6 +280,7 @@ public class AuditService : IAuditService
         ExtractionRequest request,
         string outputFilePath,
         IProgress<string>? progress = null,
+        IProgress<int>? percentProgress = null,
         CancellationToken cancellationToken = default)
     {
         return await Task.Run(async () =>
@@ -356,7 +357,7 @@ public class AuditService : IAuditService
             var totalWritten = 0;
             // Paso 2 & 3: streaming paginado sobre 'audit' + intersección en memoria por Vista.
             IAsyncEnumerable<AuditExportRow> asyncRows =
-                StreamRowsAsync(request, viewIdsHash, progress, count => totalWritten = count, cancellationToken);
+                StreamRowsAsync(request, viewIdsHash, progress, percentProgress, count => totalWritten = count, cancellationToken);
 
             AuditComparisonResult? comparisonResult = null;
             if (!string.IsNullOrWhiteSpace(request.LegacyComparisonFilePath))
@@ -412,6 +413,7 @@ public class AuditService : IAuditService
         ExtractionRequest request,
         HashSet<Guid>? viewIdsHash,
         IProgress<string>? progress,
+        IProgress<int>? percentProgress,
         Action<int> updateCount,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
@@ -561,6 +563,11 @@ public class AuditService : IAuditService
                 {
                     totalWritten++;
                     updateCount(totalWritten);
+                    if (percentProgress is not null && request.MaxRecords > 0)
+                    {
+                        var percent = (int)Math.Clamp(totalWritten * 100.0 / request.MaxRecords, 0, 100);
+                        percentProgress.Report(percent);
+                    }
                     yield return row;
 
                     if (totalWritten >= request.MaxRecords)
@@ -628,10 +635,10 @@ public class AuditService : IAuditService
                 IsFullDay         = request.IsFullDay,
                 SelectedUser      = request.SelectedUser,
                 SelectedOperation  = request.CompatibilityMode ? null : request.SelectedOperation,
-                SelectedOperations = request.CompatibilityMode ? Array.Empty<int>() : request.SelectedOperations,
-                SelectedActions    = request.CompatibilityMode ? Array.Empty<int>() : request.SelectedActions,
-                SelectedAttributes = request.SelectedAttributes,
-                SearchValue        = request.SearchValue,
+                SelectedOperations = request.CompatibilityMode ? Array.Empty<int>() : request.SelectedOperations ?? Array.Empty<int>(),
+                SelectedActions    = request.CompatibilityMode ? Array.Empty<int>() : request.SelectedActions ?? Array.Empty<int>(),
+                SelectedAttributes = request.SelectedAttributes ?? Array.Empty<string>(),
+                SearchValue        = request.SearchValue ?? string.Empty,
                 RecordId           = string.Empty,
                 StartDate          = request.StartDate,
                 EndDate            = request.EndDate,

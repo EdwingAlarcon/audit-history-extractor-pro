@@ -4,10 +4,17 @@ using AuditHistoryExtractorPro.Domain.ValueObjects;
 using Microsoft.Extensions.Logging;
 using Microsoft.PowerPlatform.Dataverse.Client;
 using Microsoft.Xrm.Sdk;
+using Microsoft.Xrm.Sdk.Messages;
+using Microsoft.Crm.Sdk.Messages;
 using Microsoft.Xrm.Sdk.Query;
 using Polly;
 using Polly.Retry;
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.ServiceModel;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace AuditHistoryExtractorPro.Infrastructure.Repositories;
 
@@ -39,17 +46,18 @@ public class DataverseAuditRepository : IAuditRepository, ISyncStateStore
         _logger = logger;
         _cacheService = cacheService;
 
-        // Configurar política de reintentos con Polly
+        // Política de resiliencia específica para throttling (429) y OrganizationServiceFault
         _retryPolicy = Policy
-            .Handle<FaultException>()
+            .Handle<FaultException<OrganizationServiceFault>>(IsThrottlingFault)
+            .Or<FaultException>()
             .Or<TimeoutException>()
             .WaitAndRetryAsync(
-                retryCount: 3,
+                retryCount: 5,
                 sleepDurationProvider: attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt)),
-                onRetry: (exception, timeSpan, retryCount, context) =>
+                onRetry: (exception, timeSpan, retryCount, _) =>
                 {
                     _logger.LogWarning(
-                        "Retry {RetryCount} after {Delay}s due to {Exception}",
+                        "Retry {RetryCount} after {Delay}s due to throttling ({Exception})",
                         retryCount,
                         timeSpan.TotalSeconds,
                         exception.GetType().Name);
@@ -81,6 +89,11 @@ public class DataverseAuditRepository : IAuditRepository, ISyncStateStore
                 async _ => await _authProvider.GetAccessTokenAsync(),
                 useUniqueInstance: true,
                 logger: null);
+
+            // Habilitar afinidad y reintentos internos del SDK para respetar Service Protection Limits
+            _serviceClient.EnableAffinityCookie = true;
+            _serviceClient.MaxRetryCount = 3;
+            _serviceClient.RetryPauseTime = TimeSpan.FromSeconds(3);
 
             if (!_serviceClient.IsReady)
             {
@@ -145,6 +158,25 @@ public class DataverseAuditRepository : IAuditRepository, ISyncStateStore
         }
     }
 
+    public Task<List<AuditRecord>> ExtractAuditRecordsAsync(
+        ExtractionCriteria criteria,
+        IProgress<int>? percentProgress,
+        CancellationToken cancellationToken = default)
+    {
+        IProgress<ExtractionProgress>? wrapper = null;
+
+        if (percentProgress is not null)
+        {
+            wrapper = new Progress<ExtractionProgress>(p =>
+            {
+                var percent = (int)Math.Clamp(p.PercentComplete, 0, 100);
+                percentProgress.Report(percent);
+            });
+        }
+
+        return ExtractAuditRecordsAsync(criteria, wrapper, cancellationToken);
+    }
+
     private async Task<List<AuditRecord>> ExtractEntityAuditRecordsAsync(
         ServiceClient client,
         string entityName,
@@ -162,19 +194,24 @@ public class DataverseAuditRepository : IAuditRepository, ISyncStateStore
         {
             var query = BuildAuditQuery(entityName, criteria, pageNumber, pagingCookie);
 
-            var response = await _retryPolicy.ExecuteAsync(async () =>
-            {
-                return await Task.Run(() => client.RetrieveMultiple(query), cancellationToken);
-            });
+            var response = await _retryPolicy.ExecuteAsync(
+                async ct => await Task.Run(() => client.RetrieveMultiple(query), ct),
+                cancellationToken);
 
             foreach (var entity in response.Entities)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 var auditRecord = MapToAuditRecord(entity);
+                await PopulateChangesFromAuditDetailAsync(client, auditRecord, cancellationToken);
                 records.Add(auditRecord);
             }
 
             progressInfo.ProcessedRecords = records.Count;
-            progressInfo.TotalRecords = response.TotalRecordCount;
+            progressInfo.TotalRecords = response.TotalRecordCount > 0
+                ? response.TotalRecordCount
+                : Math.Max(records.Count, pageNumber * criteria.PageSize);
+            progressInfo.Status = $"Extracting page {pageNumber}";
             progress?.Report(progressInfo);
 
             moreRecords = response.MoreRecords;
@@ -280,14 +317,95 @@ public class DataverseAuditRepository : IAuditRepository, ISyncStateStore
             TransactionId = entity.GetAttributeValue<Guid?>("transactionid")?.ToString()
         };
 
-        // Parsear cambios desde changedata (formato XML o JSON)
         var changeData = entity.GetAttributeValue<string>("changedata");
-        if (!string.IsNullOrEmpty(changeData))
+        if (!string.IsNullOrWhiteSpace(changeData))
         {
-            auditRecord.Changes = ParseChangeData(changeData);
+            auditRecord.AdditionalData["changedata"] = changeData;
         }
 
         return auditRecord;
+    }
+
+    private async Task PopulateChangesFromAuditDetailAsync(
+        ServiceClient client,
+        AuditRecord auditRecord,
+        CancellationToken cancellationToken)
+    {
+        if (auditRecord.AuditId == Guid.Empty)
+        {
+            return;
+        }
+
+        try
+        {
+            var request = new RetrieveAuditDetailsRequest { AuditId = auditRecord.AuditId };
+
+            var response = (RetrieveAuditDetailsResponse)await _retryPolicy.ExecuteAsync(
+                async ct => (RetrieveAuditDetailsResponse)await Task.Run(() => client.Execute(request), ct),
+                cancellationToken);
+
+            if (response.AuditDetail is AttributeAuditDetail detail)
+            {
+                var keys = detail.NewValue?.Attributes.Keys
+                    .Union(detail.OldValue?.Attributes.Keys ?? Enumerable.Empty<string>())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    ?? Enumerable.Empty<string>();
+
+                foreach (var attributeName in keys)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    if (string.IsNullOrWhiteSpace(attributeName))
+                    {
+                        continue;
+                    }
+
+                    object? newRaw = null;
+                    object? oldRaw = null;
+
+                    detail.NewValue?.Attributes.TryGetValue(attributeName, out newRaw);
+                    detail.OldValue?.Attributes.TryGetValue(attributeName, out oldRaw);
+
+                    var newFormatted = FormatAuditValue(
+                        newRaw,
+                        detail.NewValue?.FormattedValues,
+                        attributeName);
+
+                    var oldFormatted = FormatAuditValue(
+                        oldRaw,
+                        detail.OldValue?.FormattedValues,
+                        attributeName);
+
+                    auditRecord.AddFieldChange(new AuditFieldChange
+                    {
+                        FieldName = attributeName,
+                        OldValue = oldFormatted,
+                        NewValue = newFormatted,
+                        FieldType = (newRaw ?? oldRaw)?.GetType().Name ?? "unknown"
+                    });
+                }
+
+                return; // Con detalles completos no necesitamos el fallback XML
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "RetrieveAuditDetailsRequest failed for {AuditId}; will fallback to changedata", auditRecord.AuditId);
+        }
+
+        // Fallback: parsear changedata (puede venir en XML/JSON)
+        auditRecord.AdditionalData.TryGetValue("changedata", out var cachedChangedata);
+        var changeData = cachedChangedata as string;
+
+        var fallback = !string.IsNullOrWhiteSpace(changeData)
+            ? ParseChangeData(changeData!)
+            : new Dictionary<string, AuditFieldChange>();
+
+        auditRecord.Changes = fallback;
     }
 
     private Dictionary<string, AuditFieldChange> ParseChangeData(string changeData)
@@ -325,6 +443,29 @@ public class DataverseAuditRepository : IAuditRepository, ISyncStateStore
         return changes;
     }
 
+    private static string FormatAuditValue(
+        object? rawValue,
+        FormattedValueCollection? formattedValues,
+        string attributeName)
+    {
+        if (formattedValues != null && formattedValues.TryGetValue(attributeName, out var formatted))
+        {
+            return formatted;
+        }
+
+        return rawValue switch
+        {
+            null => string.Empty,
+            EntityReference er when !string.IsNullOrWhiteSpace(er.Name) => er.Name,
+            EntityReference er => er.Id.ToString(),
+            OptionSetValue osv => osv.Value.ToString(),
+            Money money => money.Value.ToString("F2"),
+            DateTime dt => dt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
+            bool b => b ? "true" : "false",
+            _ => rawValue.ToString() ?? string.Empty
+        };
+    }
+
     private string GetOperationName(int operationCode)
     {
         return operationCode switch
@@ -338,6 +479,26 @@ public class DataverseAuditRepository : IAuditRepository, ISyncStateStore
             28 => "Restore",
             _ => $"Unknown ({operationCode})"
         };
+    }
+
+    private static bool IsThrottlingFault(FaultException<OrganizationServiceFault> ex)
+    {
+        var fault = ex.Detail;
+        if (fault == null)
+        {
+            return false;
+        }
+
+        if (fault.ErrorDetails != null && fault.ErrorDetails.TryGetValue("HttpStatusCode", out var statusObj)
+            && int.TryParse(statusObj?.ToString(), out var status)
+            && status == 429)
+        {
+            return true;
+        }
+
+        return fault.ErrorCode == -2147015902 // Throttling limit exceeded
+            || fault.Message.Contains("Too Many Requests", StringComparison.OrdinalIgnoreCase)
+            || fault.Message.Contains("throttling", StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task<AuditRecord?> GetAuditRecordByIdAsync(
@@ -371,24 +532,136 @@ public class DataverseAuditRepository : IAuditRepository, ISyncStateStore
         DateTime? toDate = null,
         CancellationToken cancellationToken = default)
     {
-        var criteria = new ExtractionCriteria
-        {
-            EntityNames = new List<string> { entityName },
-            FromDate = fromDate,
-            ToDate = toDate
-        };
+        var client = await GetServiceClientAsync();
+        var records = await RetrieveRecordChangeHistoryAsync(
+            client,
+            entityName,
+            recordId,
+            fromDate,
+            toDate,
+            cancellationToken);
 
-        var records = await ExtractAuditRecordsAsync(criteria, null, cancellationToken);
-        return records.Where(r => r.RecordId == recordId)
-            .OrderBy(r => r.CreatedOn)
-            .ToList();
+        return records.OrderBy(r => r.CreatedOn).ToList();
+    }
+
+    private async Task<List<AuditRecord>> RetrieveRecordChangeHistoryAsync(
+        ServiceClient client,
+        string entityName,
+        Guid recordId,
+        DateTime? fromDate,
+        DateTime? toDate,
+        CancellationToken cancellationToken)
+    {
+        var result = new List<AuditRecord>();
+        var pageNumber = 1;
+        var more = true;
+        string? pagingCookie = null;
+
+        while (more && !cancellationToken.IsCancellationRequested)
+        {
+            var request = new RetrieveRecordChangeHistoryRequest
+            {
+                Target = new EntityReference(entityName, recordId),
+                PagingInfo = new PagingInfo
+                {
+                    PageNumber = pageNumber,
+                    Count = 5000,
+                    PagingCookie = pagingCookie
+                }
+            };
+
+            var response = (RetrieveRecordChangeHistoryResponse)await _retryPolicy.ExecuteAsync(
+                async ct => (RetrieveRecordChangeHistoryResponse)await Task.Run(() => client.Execute(request), ct),
+                cancellationToken);
+
+            foreach (var detail in response.AuditDetailCollection?.AuditDetails.OfType<AttributeAuditDetail>()
+                ?? Enumerable.Empty<AttributeAuditDetail>())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var auditEntity = detail.AuditRecord;
+                var auditId = auditEntity?.Id ?? Guid.Empty;
+                var createdOn = auditEntity?.GetAttributeValue<DateTime>("createdon") ?? DateTime.MinValue;
+
+                if (fromDate.HasValue && createdOn < fromDate.Value)
+                {
+                    continue;
+                }
+
+                if (toDate.HasValue && createdOn > toDate.Value)
+                {
+                    continue;
+                }
+
+                var record = new AuditRecord
+                {
+                    AuditId = auditId,
+                    CreatedOn = createdOn,
+                    EntityName = entityName,
+                    LogicalName = entityName,
+                    RecordId = recordId,
+                    Operation = GetOperationName(auditEntity?.GetAttributeValue<OptionSetValue>("action")?.Value ?? 0),
+                    UserId = auditEntity?.GetAttributeValue<EntityReference>("userid")?.Id.ToString() ?? string.Empty,
+                    UserName = auditEntity?.GetAttributeValue<EntityReference>("userid")?.Name ?? string.Empty,
+                    TransactionId = auditEntity?.GetAttributeValue<Guid?>("transactionid")?.ToString()
+                };
+
+                var keys = detail.NewValue?.Attributes.Keys
+                    .Union(detail.OldValue?.Attributes.Keys ?? Enumerable.Empty<string>())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    ?? Enumerable.Empty<string>();
+
+                foreach (var attributeName in keys)
+                {
+                    if (string.IsNullOrWhiteSpace(attributeName))
+                    {
+                        continue;
+                    }
+
+                    object? newRaw = null;
+                    object? oldRaw = null;
+
+                    detail.NewValue?.Attributes.TryGetValue(attributeName, out newRaw);
+                    detail.OldValue?.Attributes.TryGetValue(attributeName, out oldRaw);
+
+                    var newFormatted = FormatAuditValue(
+                        newRaw,
+                        detail.NewValue?.FormattedValues,
+                        attributeName);
+
+                    var oldFormatted = FormatAuditValue(
+                        oldRaw,
+                        detail.OldValue?.FormattedValues,
+                        attributeName);
+
+                    record.AddFieldChange(new AuditFieldChange
+                    {
+                        FieldName = attributeName,
+                        OldValue = oldFormatted,
+                        NewValue = newFormatted,
+                        FieldType = (newRaw ?? oldRaw)?.GetType().Name ?? "unknown"
+                    });
+                }
+
+                result.Add(record);
+            }
+
+            more = response.AuditDetailCollection?.MoreRecords ?? false;
+            pagingCookie = response.AuditDetailCollection?.PagingCookie;
+            pageNumber++;
+        }
+
+        return result;
     }
 
     public async Task<AuditStatistics> GetAuditStatisticsAsync(
         ExtractionCriteria criteria,
         CancellationToken cancellationToken = default)
     {
-        var records = await ExtractAuditRecordsAsync(criteria, null, cancellationToken);
+        var records = await ExtractAuditRecordsAsync(
+            criteria,
+            (IProgress<ExtractionProgress>?)null,
+            cancellationToken);
 
         var statistics = new AuditStatistics
         {

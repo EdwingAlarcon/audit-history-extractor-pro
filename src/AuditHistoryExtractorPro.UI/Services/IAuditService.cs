@@ -18,5 +18,6 @@ public interface IAuditService
         ExtractInputModel input,
         string outputFilePath,
         IProgress<string>? progress = null,
+        IProgress<int>? percentProgress = null,
         CancellationToken cancellationToken = default);
 }

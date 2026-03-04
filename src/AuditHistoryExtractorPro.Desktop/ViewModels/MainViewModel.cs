@@ -294,25 +294,22 @@ public partial class MainViewModel : ObservableObject
                 CustomFetchXml = ManualFetchXml?.Trim() ?? string.Empty
             };
 
-            var progress = new Progress<string>(message =>
+            var statusProgress = new Progress<string>(message =>
             {
                 StatusMessage = message;
-
-                if (message.StartsWith("Consultando página", StringComparison.OrdinalIgnoreCase))
-                {
-                    ProgressValue = Math.Max(ProgressValue, 20);
-                }
-                else if (message.StartsWith("Escribiendo registros", StringComparison.OrdinalIgnoreCase))
-                {
-                    ProgressValue = Math.Min(95, ProgressValue + 10);
-                }
-                else if (message.StartsWith("Extracción completada", StringComparison.OrdinalIgnoreCase))
-                {
-                    ProgressValue = 100;
-                }
             });
 
-            var result = await _auditService.ExtractAuditHistoryAsync(request, OutputPath, progress, cancellationToken);
+            var percentProgress = new Progress<int>(p =>
+            {
+                ProgressValue = Math.Clamp(p, 0, 100);
+            });
+
+            var result = await _auditService.ExtractAuditHistoryAsync(
+                request,
+                OutputPath,
+                statusProgress,
+                percentProgress,
+                cancellationToken);
             if (!result.Success)
             {
                 StatusMessage = result.Message;

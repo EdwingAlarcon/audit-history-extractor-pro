@@ -5,6 +5,7 @@ using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Query;
 using Polly;
 using Polly.Retry;
+using System;
 using System.ServiceModel;
 
 namespace AuditHistoryExtractorPro.Services.Core;
@@ -117,6 +118,25 @@ public class DataverseAuditRepository : IAuditRepository
             _logger.LogError(ex, "Error extracting audit records");
             throw;
         }
+    }
+
+    public Task<List<AuditRecord>> ExtractAuditRecordsAsync(
+        ExtractionCriteria criteria,
+        IProgress<int>? percentProgress,
+        CancellationToken cancellationToken = default)
+    {
+        IProgress<ExtractionProgress>? wrapper = null;
+
+        if (percentProgress is not null)
+        {
+            wrapper = new Progress<ExtractionProgress>(p =>
+            {
+                var percent = (int)Math.Clamp(p.PercentComplete, 0, 100);
+                percentProgress.Report(percent);
+            });
+        }
+
+        return ExtractAuditRecordsAsync(criteria, wrapper, cancellationToken);
     }
 
     private async Task<List<AuditRecord>> ExtractEntityAuditRecordsAsync(

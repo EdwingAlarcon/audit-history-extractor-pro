@@ -1,3 +1,7 @@
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+
 namespace AuditHistoryExtractorPro.Models;
 
 /// <summary>
@@ -18,6 +22,10 @@ public interface IAuditRepository
     Task<List<AuditRecord>> ExtractAuditRecordsAsync(
         ExtractionCriteria criteria,
         IProgress<ExtractionProgress>? progress = null,
+        CancellationToken cancellationToken = default);
+    Task<List<AuditRecord>> ExtractAuditRecordsAsync(
+        ExtractionCriteria criteria,
+        IProgress<int>? percentProgress,
         CancellationToken cancellationToken = default);
     
     Task<AuditRecord?> GetAuditRecordByIdAsync(

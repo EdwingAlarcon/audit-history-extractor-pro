@@ -120,7 +120,7 @@ public static class ExtractCommand
                 var repository = services.GetRequiredService<IAuditRepository>();
                 var exportService = services.GetRequiredService<IExportService>();
 
-                var records = await repository.ExtractAuditRecordsAsync(criteria);
+                var records = await repository.ExtractAuditRecordsAsync(criteria, progress);
                 var extractResult = new { Success = true, Records = records, ErrorMessage = (string?)null };
 
                 if (extractResult.Records == null)

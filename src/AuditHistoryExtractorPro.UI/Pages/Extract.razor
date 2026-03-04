@@ -170,12 +170,13 @@
 
             // Strangler Fig: se utiliza ExtractPageCoordinator (MediatR → IAuditRepository → Domain).
             // Los registros quedan en AuditSessionState; exportar en la página /export.
-            var progress = new Progress<ExtractionProgress>(p =>
+            var percentProgress = new Progress<int>(p =>
             {
-                _vm.StatusMessage = p.Status;
-                _vm.Progress = (int)Math.Clamp(p.PercentComplete, 1, 99);
+                _vm.StatusMessage = $"Procesando {p}%";
+                _vm.Progress = (int)Math.Clamp(p, 1, 99);
                 InvokeAsync(StateHasChanged);
             });
+
 
             var result = await ExtractCoordinator.ExecuteAsync(
                 new ExtractInputModel
@@ -189,7 +190,7 @@
                     IncludeDelete = _vm.IncludeDelete,
                     MaxRecords = _vm.MaxRecords
                 },
-                progress,
+                percentProgress,
                 _vm.ExtractionCts.Token);
 
             if (result.Success)

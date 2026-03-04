@@ -1,5 +1,8 @@
 using AuditHistoryExtractorPro.Domain.Entities;
 using AuditHistoryExtractorPro.Domain.ValueObjects;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace AuditHistoryExtractorPro.Domain.Interfaces;
 
@@ -13,6 +16,14 @@ public interface IAuditRepository
     Task<List<AuditRecord>> ExtractAuditRecordsAsync(
         ExtractionCriteria criteria,
         IProgress<ExtractionProgress>? progress = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Variante simplificada para reportar porcentaje de avance (0-100) desde UI (WPF/WinUI).
+    /// </summary>
+    Task<List<AuditRecord>> ExtractAuditRecordsAsync(
+        ExtractionCriteria criteria,
+        IProgress<int>? percentProgress,
         CancellationToken cancellationToken = default);
 
     Task<AuditRecord?> GetAuditRecordByIdAsync(

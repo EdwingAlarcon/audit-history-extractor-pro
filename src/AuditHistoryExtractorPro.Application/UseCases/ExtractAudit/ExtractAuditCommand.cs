@@ -13,6 +13,7 @@ public record ExtractAuditCommand : IRequest<ExtractAuditResponse>
 {
     public ExtractionCriteria Criteria { get; init; } = null!;
     public IProgress<ExtractionProgress>? Progress { get; init; }
+    public IProgress<int>? PercentProgress { get; init; }
 }
 
 /// <summary>
@@ -73,10 +74,15 @@ public class ExtractAuditCommandHandler : IRequestHandler<ExtractAuditCommand, E
             }
 
             // Extraer registros de auditoría
-            var records = await _auditRepository.ExtractAuditRecordsAsync(
-                request.Criteria,
-                request.Progress,
-                cancellationToken);
+            var records = request.PercentProgress is not null
+                ? await _auditRepository.ExtractAuditRecordsAsync(
+                    request.Criteria,
+                    request.PercentProgress,
+                    cancellationToken)
+                : await _auditRepository.ExtractAuditRecordsAsync(
+                    request.Criteria,
+                    request.Progress,
+                    cancellationToken);
 
             _logger.LogInformation("Extracted {Count} audit records", records.Count);
 

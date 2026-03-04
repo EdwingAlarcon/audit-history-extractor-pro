@@ -127,6 +127,8 @@ dataverse:
 - Separación de responsabilidades en capa de presentación mediante servicios, coordinadores y `PageViewModel` por pantalla.
 - Flujo integrado en sesión UI: `Extract -> History -> Export`.
 - Hardening validado con build + tests + smoke de rutas principales.
+- Canal de progreso porcentual unificado: Blazor y Desktop ahora consumen `IProgress<int>` end-to-end (coordinadores, command handler y repositorio) y la CLI reporta porcentaje en vivo.
+- Repositorio Dataverse con backoff por throttling, `RetrieveAuditDetails` enriquecido y paginación >5000 para historial detallado.
 
 Documentación relacionada:
 - Checklist de ejecución: [docs/UI_SURGICAL_CLEANUP_CHECKLIST.md](./docs/UI_SURGICAL_CLEANUP_CHECKLIST.md)

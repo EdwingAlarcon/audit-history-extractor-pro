@@ -22,7 +22,7 @@ public class ExtractPageCoordinator
 
     public async Task<ExtractExecutionResult> ExecuteAsync(
         ExtractInputModel input,
-        IProgress<ExtractionProgress>? progress,
+        IProgress<int>? percentProgress,
         CancellationToken cancellationToken)
     {
         var criteriaResult = _extractViewService.BuildCriteria(input);
@@ -35,7 +35,7 @@ public class ExtractPageCoordinator
         var command = new ExtractAuditCommand
         {
             Criteria = criteriaResult.Criteria,
-            Progress = progress
+            PercentProgress = percentProgress
         };
 
         var response = await _mediator.Send(command, cancellationToken);
