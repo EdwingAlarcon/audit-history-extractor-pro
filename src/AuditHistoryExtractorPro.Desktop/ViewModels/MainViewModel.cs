@@ -15,6 +15,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using WpfApplication = System.Windows.Application;
+using System.Xml.Linq;
 
 namespace AuditHistoryExtractorPro.Desktop.ViewModels;
 
@@ -859,6 +860,33 @@ public partial class MainViewModel : ObservableObject
         };
 
         dialog.ShowDialog();
+    }
+
+    [RelayCommand]
+    private void FormatFetchXml()
+    {
+        if (string.IsNullOrWhiteSpace(CustomFetchXml))
+        {
+            return;
+        }
+
+        try
+        {
+            var trimmed = CustomFetchXml.Trim();
+            var doc = XDocument.Parse(trimmed, LoadOptions.PreserveWhitespace);
+            CustomFetchXml = doc.ToString().Trim();
+            ValidateCustomFetchXml();
+        }
+        catch (Exception ex)
+        {
+            IsCustomFetchXmlValid = false;
+            CustomFetchXmlHint = "No se pudo formatear: valida que el XML sea correcto.";
+            MessageBox.Show(
+                $"El FetchXML no es válido. Detalle: {ex.Message}",
+                "FetchXML inválido",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
     }
 
     [RelayCommand]

@@ -272,7 +272,7 @@
                         <Border Background="White" BorderBrush="#E1DFDD" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,12" Visibility="{Binding ShowManualQuery, Converter={StaticResource BoolToVisibilityConverter}}">
                             <StackPanel>
                                 <TextBlock Text="Consulta Manual (FetchXML)" FontSize="15" FontWeight="SemiBold" Foreground="#323130" Margin="0,0,0,6" />
-                                <TextBlock Text="Pega un FetchXML que apunte a la tabla de auditoría. Debe incluir los nodos &lt;fetch&gt; y &lt;entity name='audit'&gt;." TextWrapping="Wrap" Foreground="#605E5C" Margin="0,0,0,10" />
+                                    <TextBlock Text="Pega un FetchXML que apunte a la tabla de auditoría. Debe incluir los nodos &lt;fetch&gt; y &lt;entity name='audit'&gt;." TextWrapping="Wrap" Foreground="#605E5C" Margin="0,0,0,10" />
                                 <Border BorderThickness="1" CornerRadius="4">
                                     <Border.Style>
                                         <Style TargetType="Border">
@@ -285,7 +285,7 @@
                                             </Style.Triggers>
                                         </Style>
                                     </Border.Style>
-                                    <TextBox MinHeight="180" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Text="{Binding CustomFetchXml, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <TextBox MinHeight="180" TextWrapping="Wrap" AcceptsReturn="True" AcceptsTab="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="13" Text="{Binding CustomFetchXml, UpdateSourceTrigger=PropertyChanged}"/>
                                 </Border>
                                 <TextBlock Text="{Binding CustomFetchXmlHint}" Foreground="#D13438" Margin="0,6,0,0">
                                     <TextBlock.Style>
@@ -300,7 +300,13 @@
                                     </TextBlock.Style>
                                 </TextBlock>
                                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                    <StackPanel.Resources>
+                                        <Style TargetType="FrameworkElement">
+                                            <Setter Property="Margin" Value="0,0,6,0" />
+                                        </Style>
+                                    </StackPanel.Resources>
                                     <Button Content="Ver template" Command="{Binding ShowFetchXmlTemplateCommand}" Padding="12,6" />
+                                    <Button Content="✨ Formatear" Command="{Binding FormatFetchXmlCommand}" Padding="10,6" ToolTip="Formatea e indenta el FetchXML" />
                                     <TextBlock Text="Valida que la entidad sea 'audit'." Margin="10,0,0,0" VerticalAlignment="Center" Foreground="#605E5C" />
                                 </StackPanel>
                             </StackPanel>
