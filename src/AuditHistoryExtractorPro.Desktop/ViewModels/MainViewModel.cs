@@ -13,6 +13,8 @@ using System.IO;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows;
+using System.Windows.Controls;
+using WpfApplication = System.Windows.Application;
 
 namespace AuditHistoryExtractorPro.Desktop.ViewModels;
 
@@ -104,8 +106,13 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string userSearchText = string.Empty;
 
-    [ObservableProperty]
-    private string manualFetchXml = string.Empty;
+    private string customFetchXml = string.Empty;
+
+    private bool isManualQueryMode;
+
+    private bool isCustomFetchXmlValid = true;
+
+    private string customFetchXmlHint = string.Empty;
 
     [ObservableProperty]
     private string searchValue = string.Empty;
@@ -131,6 +138,48 @@ public partial class MainViewModel : ObservableObject
     public ObservableCollection<CheckableItem<string>> AttributesList { get; } = new();
     public ObservableCollection<AuditExportRow> PreviewRecords { get; } = new();
     public bool IsManualTimeEnabled => !IsFullDay;
+    public string CustomFetchXml
+    {
+        get => customFetchXml;
+        set
+        {
+            if (SetProperty(ref customFetchXml, value))
+            {
+                ValidateCustomFetchXml();
+            }
+        }
+    }
+
+    public bool IsManualQueryMode
+    {
+        get => isManualQueryMode;
+        set
+        {
+            if (SetProperty(ref isManualQueryMode, value))
+            {
+                OnPropertyChanged(nameof(FilterModeLabel));
+                OnPropertyChanged(nameof(ShowVisualFilters));
+                OnPropertyChanged(nameof(ShowManualQuery));
+                ValidateCustomFetchXml();
+            }
+        }
+    }
+
+    public bool IsCustomFetchXmlValid
+    {
+        get => isCustomFetchXmlValid;
+        private set => SetProperty(ref isCustomFetchXmlValid, value);
+    }
+
+    public string CustomFetchXmlHint
+    {
+        get => customFetchXmlHint;
+        private set => SetProperty(ref customFetchXmlHint, value);
+    }
+
+    public string FilterModeLabel => IsManualQueryMode ? "Consulta Manual" : "Filtros Visuales";
+    public bool ShowVisualFilters => !IsManualQueryMode;
+    public bool ShowManualQuery => IsManualQueryMode;
 
     public MainViewModel(
         IAuditService auditService,
@@ -158,6 +207,7 @@ public partial class MainViewModel : ObservableObject
         }
 
         _ = LoadConnectionProfilesAsync();
+        ValidateCustomFetchXml();
     }
 
     private bool CanConnect() => !IsBusy;
@@ -272,6 +322,21 @@ public partial class MainViewModel : ObservableObject
 
         try
         {
+            if (IsManualQueryMode)
+            {
+                ValidateCustomFetchXml();
+                if (!IsCustomFetchXmlValid)
+                {
+                    StatusMessage = "FetchXML manual inválido. Incluye <fetch> y <entity name='audit'>.";
+                    MessageBox.Show(
+                        "La consulta FetchXML debe contener los nodos <fetch> y <entity name='audit'>.",
+                        "FetchXML inválido",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                    return;
+                }
+            }
+
             var cancellationToken = StartNewRunCancellation();
             var request = new ExtractionRequest
             {
@@ -291,7 +356,7 @@ public partial class MainViewModel : ObservableObject
                 SelectedView = SelectedView,
                 CompatibilityMode = CompatibilityMode,
                 LegacyComparisonFilePath = LegacyComparisonFilePath?.Trim() ?? string.Empty,
-                CustomFetchXml = ManualFetchXml?.Trim() ?? string.Empty
+                CustomFetchXml = IsManualQueryMode ? (CustomFetchXml?.Trim() ?? string.Empty) : string.Empty
             };
 
             var statusProgress = new Progress<string>(message =>
@@ -364,6 +429,22 @@ public partial class MainViewModel : ObservableObject
 
         try
         {
+            if (IsManualQueryMode)
+            {
+                ValidateCustomFetchXml();
+                if (!IsCustomFetchXmlValid)
+                {
+                    ProgressValue = 0;
+                    StatusMessage = "FetchXML manual inválido. Incluye <fetch> y <entity name='audit'>.";
+                    MessageBox.Show(
+                        "La consulta FetchXML debe contener los nodos <fetch> y <entity name='audit'>.",
+                        "FetchXML inválido",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                    return;
+                }
+            }
+
             var cancellationToken = StartNewRunCancellation();
             var request = new ExtractionRequest
             {
@@ -382,7 +463,7 @@ public partial class MainViewModel : ObservableObject
                 EndDate            = BuildEndDateTime(),
                 SelectedView       = SelectedView,
                 CompatibilityMode  = CompatibilityMode,
-                CustomFetchXml     = ManualFetchXml?.Trim() ?? string.Empty
+                CustomFetchXml     = IsManualQueryMode ? (CustomFetchXml?.Trim() ?? string.Empty) : string.Empty
             };
 
             // Ejecutar en hilo de fondo — UI sigue respondiendo.
@@ -524,7 +605,7 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        ManualFetchXml = value.FetchXml;
+        CustomFetchXml = value.FetchXml;
     }
 
     partial void OnSelectedConnectionProfileChanged(SavedConnection? value)
@@ -539,6 +620,33 @@ public partial class MainViewModel : ObservableObject
         RememberCredential = value.RememberPassword || !string.IsNullOrWhiteSpace(value.Password);
         ProfileCredential = RememberCredential ? value.Password : string.Empty;
         CrmUrl = value.ServiceUrl;
+    }
+
+    private void ValidateCustomFetchXml()
+    {
+        if (!IsManualQueryMode)
+        {
+            IsCustomFetchXmlValid = true;
+            CustomFetchXmlHint = string.Empty;
+            return;
+        }
+
+        var xml = CustomFetchXml?.Trim();
+
+        if (string.IsNullOrWhiteSpace(xml))
+        {
+            IsCustomFetchXmlValid = false;
+            CustomFetchXmlHint = "Pega un FetchXML con <fetch> y <entity name='audit'>.";
+            return;
+        }
+
+        var hasFetch = Regex.IsMatch(xml, "<\\s*fetch", RegexOptions.IgnoreCase);
+        var hasAuditEntity = Regex.IsMatch(xml, "<\\s*entity[^>]+name\\s*=\\s*['\"]audit['\"]", RegexOptions.IgnoreCase);
+
+        IsCustomFetchXmlValid = hasFetch && hasAuditEntity;
+        CustomFetchXmlHint = IsCustomFetchXmlValid
+            ? string.Empty
+            : "La consulta debe apuntar a la tabla de auditoría (<entity name='audit'>).";
     }
 
     private async Task LoadAuditableEntitiesAsync()
@@ -700,6 +808,57 @@ public partial class MainViewModel : ObservableObject
         {
             LegacyComparisonFilePath = dialog.FileName;
         }
+    }
+
+    [RelayCommand]
+    private void ShowFetchXmlTemplate()
+    {
+        const string template = "<fetch version=\"1.0\" page=\"1\" count=\"500\" returntotalrecordcount=\"true\">\n  <entity name=\"audit\">\n    <attribute name=\"auditid\" />\n    <attribute name=\"createdon\" />\n    <attribute name=\"userid\" />\n    <attribute name=\"objectid\" />\n    <filter>\n      <condition attribute=\"createdon\" operator=\"last-x-days\" value=\"7\" />\n    </filter>\n  </entity>\n</fetch>";
+
+        var panel = new StackPanel { Margin = new Thickness(12), Orientation = Orientation.Vertical };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Template base para auditar la tabla 'audit'. Ajusta filtros y atributos según tus necesidades.",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 8)
+        });
+
+        var box = new TextBox
+        {
+            Text = template,
+            FontFamily = new System.Windows.Media.FontFamily("Consolas"),
+            FontSize = 13,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            IsReadOnly = true,
+            MinHeight = 200
+        };
+        panel.Children.Add(box);
+
+        var copyButton = new Button
+        {
+            Content = "Copiar al portapapeles",
+            Margin = new Thickness(0, 10, 0, 0),
+            Padding = new Thickness(12, 6, 12, 6),
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
+        copyButton.Click += (_, _) => Clipboard.SetText(template);
+        panel.Children.Add(copyButton);
+
+        var dialog = new Window
+        {
+            Title = "FetchXML básico (audit)",
+            Content = panel,
+            Width = 520,
+            Height = 420,
+            ResizeMode = ResizeMode.CanResize,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = WpfApplication.Current?.MainWindow
+        };
+
+        dialog.ShowDialog();
     }
 
     [RelayCommand]
