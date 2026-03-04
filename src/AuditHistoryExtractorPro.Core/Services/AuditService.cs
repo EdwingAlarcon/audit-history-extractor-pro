@@ -228,6 +228,7 @@ public class AuditService : IAuditService
             SelectedActions    = request.SelectedActions,
             SelectedAttributes = request.SelectedAttributes,
             SearchValue        = request.SearchValue,
+            UseStrictComparison = request.UseStrictComparison,
             MaxRecords         = maxRows,  // ← límite de seguridad anti-OOM
             SelectedView       = request.SelectedView,
             CustomFetchXml     = request.CustomFetchXml
@@ -434,6 +435,8 @@ public class AuditService : IAuditService
         // rechaza el nombre lógico como string con FormatException en FetchXML.
         var entityTypeCode = await ResolveEntityTypeCodeAsync(request.EntityName, cancellationToken);
 
+        var skipOperationFilters = request.CompatibilityMode && !request.UseStrictComparison;
+
         var filters = new AuditQueryFilters
         {
             EntityName = request.EntityName,
@@ -443,9 +446,10 @@ public class AuditService : IAuditService
             SelectedDateTo = request.SelectedDateTo,
             IsFullDay = request.IsFullDay,
             SelectedUser = request.SelectedUser,
-            SelectedOperation = request.CompatibilityMode ? null : request.SelectedOperation,
-            SelectedOperations = request.CompatibilityMode ? Array.Empty<int>() : request.SelectedOperations,
-            SelectedActions = request.CompatibilityMode ? Array.Empty<int>() : request.SelectedActions,
+            SelectedOperation = skipOperationFilters ? null : request.SelectedOperation,
+            SelectedOperations = skipOperationFilters ? Array.Empty<int>() : request.SelectedOperations,
+            SelectedActions = skipOperationFilters ? Array.Empty<int>() : request.SelectedActions,
+            UseStrictComparison = request.UseStrictComparison,
             SelectedAttributes = request.SelectedAttributes,
             SearchValue = request.SearchValue,
             // Estrictamente prohibido enviar filtros por objectid al backend

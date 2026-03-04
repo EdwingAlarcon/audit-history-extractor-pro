@@ -278,11 +278,11 @@ public class DataverseAuditRepository : IAuditRepository, ISyncStateStore
                 criteria.ToDate.Value);
         }
 
-        // Filtrar por tipo de operación
+        // Filtrar por tipo de operación (campo 'operation')
         if (criteria.Operations?.Any() == true)
         {
             var operationValues = criteria.Operations.Select(o => (int)o).ToArray();
-            query.Criteria.AddCondition("action", ConditionOperator.In, operationValues);
+            query.Criteria.AddCondition("operation", ConditionOperator.In, operationValues);
         }
 
         // Filtrar por usuarios
@@ -305,13 +305,19 @@ public class DataverseAuditRepository : IAuditRepository, ISyncStateStore
 
     private AuditRecord MapToAuditRecord(Entity entity)
     {
+        var operationCode = entity.GetAttributeValue<OptionSetValue>("operation")?.Value ?? 0;
+        var actionCode = entity.GetAttributeValue<OptionSetValue>("action")?.Value ?? 0;
+
         var auditRecord = new AuditRecord
         {
             AuditId = entity.GetAttributeValue<Guid>("auditid"),
             CreatedOn = entity.GetAttributeValue<DateTime>("createdon"),
             RecordId = entity.GetAttributeValue<EntityReference>("objectid")?.Id ?? Guid.Empty,
             EntityName = entity.GetAttributeValue<string>("objecttypecode") ?? string.Empty,
-            Operation = GetOperationName(entity.GetAttributeValue<OptionSetValue>("action")?.Value ?? 0),
+            OperationCode = operationCode,
+            Operation = GetOperationName(operationCode),
+            ActionCode = actionCode,
+            Action = GetActionName(actionCode),
             UserId = entity.GetAttributeValue<EntityReference>("userid")?.Id.ToString() ?? string.Empty,
             UserName = entity.GetAttributeValue<EntityReference>("userid")?.Name ?? string.Empty,
             TransactionId = entity.GetAttributeValue<Guid?>("transactionid")?.ToString()
@@ -478,6 +484,19 @@ public class DataverseAuditRepository : IAuditRepository, ISyncStateStore
             27 => "Archive",
             28 => "Restore",
             _ => $"Unknown ({operationCode})"
+        };
+    }
+
+    private string GetActionName(int actionCode)
+    {
+        return actionCode switch
+        {
+            1 => "Create",
+            2 => "Update",
+            3 => "Delete",
+            4 => "Activate",
+            5 => "Deactivate",
+            _ => $"Unknown ({actionCode})"
         };
     }
 

@@ -52,34 +52,42 @@ public class QueryBuilderService
             query.Criteria.AddCondition("createdon", ConditionOperator.LessEqual, NormalizeToUtc(toDate.Value));
         }
 
-        // ── Filtro de operación (BYPASS si lista vacía) ───────────────────────
-        // Se usa ConditionExpression directamente para evitar el quirk del SDK:
-        // AddCondition("field", In, params object[]) puede serializar el array
-        // entero como UN SOLO valor cuando el compilador lo trata como objeto.
-        // AddRange sobre Values garantiza que cada int sea un elemento separado.
-        var operations = (filters.SelectedOperations ?? Array.Empty<int>())
-            .Where(v => v > 0).Distinct().ToList();
-        if (operations.Count == 0 && filters.SelectedOperation.HasValue)
+        if (filters.UseStrictComparison)
         {
-            operations = new List<int> { (int)filters.SelectedOperation.Value };
+            query.Criteria.AddCondition("operation", ConditionOperator.Equal, 2);
+            query.Criteria.AddCondition("action", ConditionOperator.Equal, 2);
         }
-
-        // Bypass: si no hay ninguna operación seleccionada → sin restricción.
-        if (operations.Count > 0)
+        else
         {
-            var opCond = new ConditionExpression("operation", ConditionOperator.In);
-            opCond.Values.AddRange(operations.Select(v => (object)(int)v));
-            query.Criteria.Conditions.Add(opCond);
-        }
+            // ── Filtro de operación (BYPASS si lista vacía) ──────────────────
+            // Se usa ConditionExpression directamente para evitar el quirk del SDK:
+            // AddCondition("field", In, params object[]) puede serializar el array
+            // entero como UN SOLO valor cuando el compilador lo trata como objeto.
+            // AddRange sobre Values garantiza que cada int sea un elemento separado.
+            var operations = (filters.SelectedOperations ?? Array.Empty<int>())
+                .Where(v => v > 0).Distinct().ToList();
+            if (operations.Count == 0 && filters.SelectedOperation.HasValue)
+            {
+                operations = new List<int> { (int)filters.SelectedOperation.Value };
+            }
 
-        // ── Filtro de acción (BYPASS si lista vacía) ──────────────────────────
-        var actions = (filters.SelectedActions ?? Array.Empty<int>())
-            .Where(v => v > 0).Distinct().ToList();
-        if (actions.Count > 0)
-        {
-            var actCond = new ConditionExpression("action", ConditionOperator.In);
-            actCond.Values.AddRange(actions.Select(v => (object)(int)v));
-            query.Criteria.Conditions.Add(actCond);
+            // Bypass: si no hay ninguna operación seleccionada → sin restricción.
+            if (operations.Count > 0)
+            {
+                var opCond = new ConditionExpression("operation", ConditionOperator.In);
+                opCond.Values.AddRange(operations.Select(v => (object)(int)v));
+                query.Criteria.Conditions.Add(opCond);
+            }
+
+            // ── Filtro de acción (BYPASS si lista vacía) ─────────────────────
+            var actions = (filters.SelectedActions ?? Array.Empty<int>())
+                .Where(v => v > 0).Distinct().ToList();
+            if (actions.Count > 0)
+            {
+                var actCond = new ConditionExpression("action", ConditionOperator.In);
+                actCond.Values.AddRange(actions.Select(v => (object)(int)v));
+                query.Criteria.Conditions.Add(actCond);
+            }
         }
 
         // Filtro de usuario: TOTALMENTE OPCIONAL.
@@ -174,31 +182,39 @@ public class QueryBuilderService
             sb.Append($"      <condition attribute='createdon' operator='on-or-before' value='{FormatUtcIso8601(toUtc)}' />\n");
         }
 
-        // Bypass si no hay operaciones seleccionadas.
-        var fxOperations = (filters.SelectedOperations ?? Array.Empty<int>())
-            .Where(v => v > 0).Distinct().ToList();
-        if (fxOperations.Count == 0 && filters.SelectedOperation.HasValue)
+        if (filters.UseStrictComparison)
         {
-            fxOperations = new List<int> { (int)filters.SelectedOperation.Value };
+            sb.Append("      <condition attribute='operation' operator='eq' value='2' />\n");
+            sb.Append("      <condition attribute='action' operator='eq' value='2' />\n");
         }
-
-        if (fxOperations.Count > 0)
+        else
         {
-            sb.Append("      <condition attribute='operation' operator='in'>\n");
-            foreach (var op in fxOperations)
-                sb.Append($"        <value>{(int)op}</value>\n");
-            sb.Append("      </condition>\n");
-        }
+            // Bypass si no hay operaciones seleccionadas.
+            var fxOperations = (filters.SelectedOperations ?? Array.Empty<int>())
+                .Where(v => v > 0).Distinct().ToList();
+            if (fxOperations.Count == 0 && filters.SelectedOperation.HasValue)
+            {
+                fxOperations = new List<int> { (int)filters.SelectedOperation.Value };
+            }
 
-        // Bypass si no hay acciones seleccionadas.
-        var fxActions = (filters.SelectedActions ?? Array.Empty<int>())
-            .Where(v => v > 0).Distinct().ToList();
-        if (fxActions.Count > 0)
-        {
-            sb.Append("      <condition attribute='action' operator='in'>\n");
-            foreach (var act in fxActions)
-                sb.Append($"        <value>{(int)act}</value>\n");
-            sb.Append("      </condition>\n");
+            if (fxOperations.Count > 0)
+            {
+                sb.Append("      <condition attribute='operation' operator='in'>\n");
+                foreach (var op in fxOperations)
+                    sb.Append($"        <value>{(int)op}</value>\n");
+                sb.Append("      </condition>\n");
+            }
+
+            // Bypass si no hay acciones seleccionadas.
+            var fxActions = (filters.SelectedActions ?? Array.Empty<int>())
+                .Where(v => v > 0).Distinct().ToList();
+            if (fxActions.Count > 0)
+            {
+                sb.Append("      <condition attribute='action' operator='in'>\n");
+                foreach (var act in fxActions)
+                    sb.Append($"        <value>{(int)act}</value>\n");
+                sb.Append("      </condition>\n");
+            }
         }
 
         // Filtro de usuario: TOTALMENTE OPCIONAL.

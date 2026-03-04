@@ -11,6 +11,8 @@ public class AuditQueryFilters
     public OperationFilter? SelectedOperation { get; init; }
     public IReadOnlyList<int> SelectedOperations { get; init; } = Array.Empty<int>();
     public IReadOnlyList<int> SelectedActions { get; init; } = Array.Empty<int>();
+    /// <summary>Forzar filtro estricto: operation = 2 AND action = 2.</summary>
+    public bool UseStrictComparison { get; init; }
     public IReadOnlyList<string> SelectedAttributes { get; init; } = Array.Empty<string>();
     public string SearchValue { get; init; } = string.Empty;
     public string RecordId { get; init; } = string.Empty;

@@ -23,6 +23,8 @@ public class ExtractionRequest
     public IReadOnlyList<int> SelectedActions { get; init; } = Array.Empty<int>();
     public IReadOnlyList<string> SelectedAttributes { get; init; } = Array.Empty<string>();
     public string SearchValue { get; init; } = string.Empty;
+    /// <summary>Activa el filtro estricto: operation=2 AND action=2.</summary>
+    public bool UseStrictComparison { get; init; }
     public bool CompatibilityMode { get; init; }
     public string LegacyComparisonFilePath { get; init; } = string.Empty;
     /// <summary>Vista del sistema o personal seleccionada. Si tiene FetchXml,

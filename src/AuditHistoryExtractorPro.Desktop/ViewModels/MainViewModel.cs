@@ -122,6 +122,9 @@ public partial class MainViewModel : ObservableObject
     private bool compatibilityMode;
 
     [ObservableProperty]
+    private bool strictComparisonFilter;
+
+    [ObservableProperty]
     private string legacyComparisonFilePath = string.Empty;
 
     [ObservableProperty]
@@ -355,6 +358,7 @@ public partial class MainViewModel : ObservableObject
                 StartDate = BuildStartDateTime(),
                 EndDate = BuildEndDateTime(),
                 SelectedView = SelectedView,
+                UseStrictComparison = StrictComparisonFilter,
                 CompatibilityMode = CompatibilityMode,
                 LegacyComparisonFilePath = LegacyComparisonFilePath?.Trim() ?? string.Empty,
                 CustomFetchXml = IsManualQueryMode ? (CustomFetchXml?.Trim() ?? string.Empty) : string.Empty
@@ -386,6 +390,15 @@ public partial class MainViewModel : ObservableObject
             OutputPath = result.OutputFilePath;
             StatusMessage = result.Message;
             ProgressValue = 100;
+
+            if (result.RecordsExtracted > 1000 && !StrictComparisonFilter)
+            {
+                MessageBox.Show(
+                    $"Se extrajeron {result.RecordsExtracted:N0} registros. Considera activar el Filtro Estricto de Comparación (operation=2 y action=2) para reducir el ruido de eventos de sistema.",
+                    "Sugerencia: aplicar filtro estricto",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
             // ── La exportación NO toca PreviewRecords.
             // La Vista Previa es un estado independiente del motor de exportación.
         }
@@ -463,6 +476,7 @@ public partial class MainViewModel : ObservableObject
                 StartDate          = BuildStartDateTime(),
                 EndDate            = BuildEndDateTime(),
                 SelectedView       = SelectedView,
+                UseStrictComparison = StrictComparisonFilter,
                 CompatibilityMode  = CompatibilityMode,
                 CustomFetchXml     = IsManualQueryMode ? (CustomFetchXml?.Trim() ?? string.Empty) : string.Empty
             };

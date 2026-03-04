@@ -13,7 +13,15 @@ public class AuditRecord
     public Guid RecordId { get; set; }
     public string LogicalName { get; set; } = string.Empty;
     public string RecordUrl { get; set; } = string.Empty;
+    /// <summary>Código numérico del campo 'operation' (DML) de Dataverse.</summary>
+    public int OperationCode { get; set; }
     public string Operation { get; set; } = string.Empty;
+    /// <summary>Código numérico del campo 'action' de Dataverse.</summary>
+    public int ActionCode { get; set; }
+    /// <summary>Etiqueta legible del campo 'action'.</summary>
+    public string Action { get; set; } = string.Empty;
+    public string OperationName => Operation;
+    public string ActionName => Action;
     public string UserId { get; set; } = string.Empty;
     public string UserName { get; set; } = string.Empty;
     public string RealActor { get; set; } = string.Empty;
